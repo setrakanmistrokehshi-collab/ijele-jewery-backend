@@ -1,0 +1,30 @@
+{
+  "name": "ijele-backend",
+  "private": true,
+  "type": "module",
+  "engines": {
+    "node": ">=22"
+  },
+  "scripts": {
+    "dev": "node --watch --env-file=.env src/server.js",
+    "dev:node": "node --watch --env-file=.env src/server.js",
+    "start": "node --env-file=.env src/server.js",
+    "create-admin": "node --env-file=.env scripts/create-admin.js",
+    "test": "node --test \"tests/*.test.js\"",
+    "audit": "npm audit --omit=dev",
+    "migrate-stock-flags": "node --env-file=.env scripts/migrate-order-stock-flags.js",
+    "load-test": "node scripts/load-test-checkout.js"
+  },
+  "dependencies": {
+    "@bachs/sdk": "1.0.0",
+    "argon2": "^0.45.2",
+    "cloudinary": "^2.11.0",
+    "cookie-parser": "^1.4.7",
+    "express": "^5.3.0",
+    "express-rate-limit": "^8.7.3",
+    "google-auth-library": "^11.3.2",
+    "helmet": "^8.3.0",
+    "mongoose": "^8.24.8",
+    "zod": "^4.6.7"
+  }
+}
