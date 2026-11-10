@@ -1,12 +1,11 @@
 import { z } from 'zod';
 import { CURRENCIES, SKU_PATTERN } from '../config/constants.js';
-import { emailAddress, phoneNumber, singleLineText } from './common.validators.js';
+import { phoneNumber, singleLineText } from './common.validators.js';
 
 export const MAX_QUANTITY_PER_ITEM = 10;
 
 export const checkoutRequestSchema = z.strictObject({
   currency: z.enum(CURRENCIES),
-  email: emailAddress,
   phone: phoneNumber,
   address: z.strictObject({
     name: singleLineText(1, 120),

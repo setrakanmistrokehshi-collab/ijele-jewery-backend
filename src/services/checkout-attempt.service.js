@@ -1,4 +1,4 @@
-// Idempotency for "create checkout". Same Idempotency-Key + same basket = same answer, never a second order.
+// Idempotency for "create checkout". A key is scoped to the customer and basket, never shared across accounts.
 import crypto from 'node:crypto';
 import { CheckoutAttempt, Order } from '../models/index.js';
 import { HttpError } from '../utils/http-error.js';
@@ -6,7 +6,8 @@ import { HttpError } from '../utils/http-error.js';
 const STALE_ATTEMPT_AFTER_MS = 2 * 60 * 1000; // a request still "processing" after this is presumed to have crashed
 const DUPLICATE_KEY_ERROR_CODE = 11000;
 
-export const fingerprintCart = (cart) => crypto.createHash('sha256').update(JSON.stringify(cart)).digest('hex');
+export const fingerprintCart = (cart, customerId) =>
+  crypto.createHash('sha256').update(JSON.stringify({ cart, customerId: String(customerId) })).digest('hex');
 
 /**
  * Takes the right to create an order for this key. Returns `{ replayUrl }` when the same request already succeeded

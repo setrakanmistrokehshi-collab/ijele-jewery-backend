@@ -49,7 +49,13 @@ export async function signOutCustomer(request, response) {
 }
 
 export async function listCustomerOrders(request, response) {
-  if (!request.customer.trusted) return response.status(403).json({ error: 'Email not verified for order lookup' });
-  const orders = await Order.find({ email: request.customer.email, status: 'paid' }).sort({ createdAt: -1 }).limit(50).lean();
-  return response.json({ pushId: createPushId(request.customer.email), orders: orders.map(toCustomerOrderView) });
+  const ownership = [{ customer: request.customer._id }];
+  if (request.customer.trusted) {
+    ownership.push({ customer: { $exists: false }, email: request.customer.email });
+  }
+  const orders = await Order.find({ $or: ownership, status: 'paid' }).sort({ createdAt: -1 }).limit(50).lean();
+  return response.json({
+    pushId: request.customer.trusted ? createPushId(request.customer.email) : undefined,
+    orders: orders.map(toCustomerOrderView),
+  });
 }

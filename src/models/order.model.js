@@ -33,6 +33,7 @@ const orderSchema = new Schema(
       },
     ],
     orderNumber: { type: String, unique: true, sparse: true },
+    customer: { type: Schema.Types.ObjectId, ref: 'User', index: true },
     email: { type: String, lowercase: true, index: true },
     phone: String,
     address: { name: String, line1: String, city: String, postal: String },

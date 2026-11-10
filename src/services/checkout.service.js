@@ -70,7 +70,7 @@ async function createOrderWithUniqueNumber(orderFields) {
 }
 
 /** Creates the order, reserving stock first. If anything fails after reserving, the stock is put back. */
-async function createOrderWithReservedStock({ lines, currency, email, phone, address, shipping }) {
+async function createOrderWithReservedStock({ lines, currency, customer, email, phone, address, shipping }) {
   const reservation = await reserveStock(lines);
   if (!reservation.reserved) throw new HttpError(409, `Insufficient stock for ${reservation.soldOutSku}`);
 
@@ -82,7 +82,7 @@ async function createOrderWithReservedStock({ lines, currency, email, phone, add
     const operatingExpenses = sumLines(lines, 'unitCost');
 
     return await createOrderWithUniqueNumber({
-      email, phone, address,
+      customer, email, phone, address,
       shipping: { ...shipping, fee: shippingFee },
       items: lines,
       currency,
@@ -137,20 +137,23 @@ async function startHostedCheckout(order) {
 
 /**
  * Returns the hosted checkout URL for a validated cart.
- * Safe to repeat: the same `idempotencyKey` and basket never create a second order.
+ * Safe to repeat: the same customer, `idempotencyKey` and basket never create a second order.
  */
 export async function createCheckout({ cart, signedInCustomer, idempotencyKey }) {
-  const claim = await claimCheckoutAttempt(idempotencyKey, fingerprintCart(cart));
+  if (!signedInCustomer?._id || !signedInCustomer.email) {
+    throw new HttpError(401, 'Sign in with Google to continue checkout');
+  }
+  const claim = await claimCheckoutAttempt(idempotencyKey, fingerprintCart(cart, signedInCustomer._id));
   if (claim.replayUrl) return claim.replayUrl;
 
-  const { currency, items, email: submittedEmail, phone, address, shipping } = cart;
-  // A signed-in customer's order is tied to the verified Google email, not whatever was typed.
-  const email = signedInCustomer?.trusted ? signedInCustomer.email : submittedEmail;
+  const { currency, items, phone, address, shipping } = cart;
+  const customer = signedInCustomer._id;
+  const email = signedInCustomer.email;
   let order = null;
 
   try {
     const lines = await buildOrderLines(items, currency);
-    order = await createOrderWithReservedStock({ lines, currency, email, phone, address, shipping });
+    order = await createOrderWithReservedStock({ lines, currency, customer, email, phone, address, shipping });
     const checkoutUrl = await startHostedCheckout(order);
     // If recording success fails, the customer still gets their checkout link.
     await completeCheckoutAttempt(idempotencyKey, { orderId: order._id, checkoutUrl })
