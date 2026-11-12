@@ -8,6 +8,7 @@ import { signInCustomer, verifyGoogleSignIn } from '../services/customer-auth.se
 import { createPushId } from '../services/notification.service.js';
 import { generateNonce } from '../utils/nonce.js';
 import { hashSessionToken } from '../utils/tokens.js';
+import { trustedQueryOperator } from '../utils/trusted-query-operator.js';
 import { googleSignInSchema } from '../validators/customer.validators.js';
 
 /**
@@ -51,7 +52,7 @@ export async function signOutCustomer(request, response) {
 export async function listCustomerOrders(request, response) {
   const ownership = [{ customer: request.customer._id }];
   if (request.customer.trusted) {
-    ownership.push({ customer: { $exists: false }, email: request.customer.email });
+    ownership.push({ customer: trustedQueryOperator({ $exists: false }), email: request.customer.email });
   }
   const orders = await Order.find({ $or: ownership, status: 'paid' }).sort({ createdAt: -1 }).limit(50).lean();
   return response.json({

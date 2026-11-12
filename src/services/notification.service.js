@@ -13,7 +13,7 @@ const STEP_DESCRIPTIONS = ['being prepared', 'packed', 'on its way', 'delivered'
 export const createPushId = (email) => crypto.createHmac('sha256', env.PUSH_ID_SECRET).update(email).digest('hex');
 
 function buildOrderEmailHtml(order, subject) {
-  const ordersUrl = `${env.CLIENT_ORIGIN}/orders`;
+  const ordersUrl = `${new URL(env.CLIENT_ORIGIN[0]).origin}/orders`;
   const trackingLine = order.trackingNumber
     ? `<p>${escapeHtml(order.carrier)} tracking number: <strong>${escapeHtml(order.trackingNumber)}</strong></p>`
     : '';
@@ -33,7 +33,7 @@ export async function notifyCustomerOfOrderUpdate(order, description = STEP_DESC
       include_aliases: { external_id: [createPushId(order.email)] },
       headings: { en: 'Aurora' },
       contents: { en: subject },
-      url: `${env.CLIENT_ORIGIN}/orders`,
+      url: `${new URL(env.CLIENT_ORIGIN[0]).origin}/orders`,
     }),
     sendOneSignalNotification({
       target_channel: 'email',

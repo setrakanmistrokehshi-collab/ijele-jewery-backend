@@ -5,6 +5,7 @@ import { Order, Product } from '../models/index.js';
 import { createBachsCheckoutSession, mayHaveReachedBachs } from '../integrations/bachs.client.js';
 import { HttpError } from '../utils/http-error.js';
 import { minorUnitsToDecimalString } from '../utils/money.js';
+import { resolveClientOrigin } from '../utils/client-origin.js';
 import { trustedQueryOperator } from '../utils/trusted-query-operator.js';
 import { MAX_QUANTITY_PER_ITEM } from '../validators/checkout.validators.js';
 import {
@@ -109,7 +110,7 @@ async function createOrderWithReservedStock({ lines, currency, customer, email, 
 }
 
 /** Opens the hosted Bachs checkout for an order and returns its URL. */
-async function startHostedCheckout(order) {
+async function startHostedCheckout(order, clientOrigin) {
   try {
     const session = await createBachsCheckoutSession(
       {
@@ -117,8 +118,8 @@ async function startHostedCheckout(order) {
         reference: String(order._id),
         metadata: { orderId: String(order._id) },
         expires_in_minutes: CHECKOUT_LIFETIME_MINUTES,
-        success_url: `${env.CLIENT_ORIGIN}/thanks`,
-        cancel_url: `${env.CLIENT_ORIGIN}/checkout`, // back to the form, with the basket and details still there
+        success_url: `${clientOrigin}/thanks`,
+        cancel_url: `${clientOrigin}/checkout`, // back to the form, with the basket and details still there
       },
       { idempotencyKey: `checkout-${order._id}` },
     );
@@ -131,8 +132,14 @@ async function startHostedCheckout(order) {
       .catch((error) => console.error('Could not save the Bachs checkout id:', error));
     return session.checkout_url;
   } catch (error) {
-    console.error('Bachs checkout creation failed:', error.name, error.status, error.errorCode, error.requestId);
     const outcomeUnknown = mayHaveReachedBachs(error);
+    console.error('Bachs checkout creation failed:', {
+      name: error.name,
+      status: error.status ?? error.responseStatus,
+      errorCode: error.errorCode,
+      requestId: error.requestId,
+      outcomeUnknown,
+    });
 
     if (outcomeUnknown) {
       // The checkout may exist at Bachs: keep the stock held. If a payment arrives, the webhook finds this
@@ -157,10 +164,11 @@ async function startHostedCheckout(order) {
  * Returns the hosted checkout URL for a validated cart.
  * Safe to repeat: the same customer, `idempotencyKey` and basket never create a second order.
  */
-export async function createCheckout({ cart, signedInCustomer, idempotencyKey }) {
+export async function createCheckout({ cart, signedInCustomer, idempotencyKey, requestOrigin }) {
   if (!signedInCustomer?._id || !signedInCustomer.email) {
     throw new HttpError(401, 'Sign in with Google to continue checkout');
   }
+  const clientOrigin = resolveClientOrigin(requestOrigin, env.CLIENT_ORIGIN);
   const claim = await claimCheckoutAttempt(idempotencyKey, fingerprintCart(cart, signedInCustomer._id));
   if (claim.replayUrl) return claim.replayUrl;
 
@@ -174,7 +182,7 @@ export async function createCheckout({ cart, signedInCustomer, idempotencyKey })
     order = await createOrderWithReservedStock({
       lines, currency, customer, email, phone, address, shipping, checkoutAttemptKey: idempotencyKey,
     });
-    const checkoutUrl = await startHostedCheckout(order);
+    const checkoutUrl = await startHostedCheckout(order, clientOrigin);
     // If recording success fails, the customer still gets their checkout link.
     const completed = await completeCheckoutAttempt(idempotencyKey, claim.ownerToken, { orderId: order._id, checkoutUrl })
       .catch((error) => {

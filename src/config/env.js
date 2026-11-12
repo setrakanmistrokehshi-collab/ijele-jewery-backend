@@ -17,7 +17,8 @@ const environmentSchema = z
     // Accepts comma-separated origins
     CLIENT_ORIGIN: z
       .string()
-      .transform((val) => val.split(',').map((s) => s.trim()).filter(Boolean)),
+      .transform((val) => val.split(',').map((s) => s.trim()).filter(Boolean))
+      .pipe(z.array(z.url()).min(1)),
 
     ADMIN_ORIGIN: optionalUrl,
 

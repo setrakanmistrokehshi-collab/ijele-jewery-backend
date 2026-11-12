@@ -13,7 +13,12 @@ const idempotencyKeySchema = z.uuid();
 export async function createCheckoutSession(request, response) {
   const idempotencyKey = idempotencyKeySchema.parse(request.get('idempotency-key'));
   const cart = checkoutRequestSchema.parse(request.body);
-  const url = await createCheckout({ cart, signedInCustomer: request.customer, idempotencyKey });
+  const url = await createCheckout({
+    cart,
+    signedInCustomer: request.customer,
+    idempotencyKey,
+    requestOrigin: request.get('origin'),
+  });
   response.json({ url });
 }
 
