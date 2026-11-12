@@ -11,7 +11,7 @@ import {
   claimCheckoutAttempt, completeCheckoutAttempt, fingerprintCart, markCheckoutAttemptUnknown, releaseCheckoutAttempt,
 } from './checkout-attempt.service.js';
 import { resolveShippingFee } from './shipping.service.js';
-import { releaseOrderStock, reserveStock, restockItems } from './stock.service.js';
+import { releaseOrderStock, reserveStock } from './stock.service.js';
 
 const CHECKOUT_LIFETIME_MINUTES = 30;
 const MAX_ORDER_NUMBER_ATTEMPTS = 5;
@@ -57,42 +57,54 @@ async function buildOrderLines(items, currency) {
 const sumLines = (lines, unitField) => lines.reduce((total, line) => total + line[unitField] * line.qty, 0);
 const newOrderNumber = () => `${ORDER_NUMBER_PREFIX}-${crypto.randomInt(1_000_000, 10_000_000)}`;
 
-/** Order numbers are random, so two orders can (rarely) draw the same one. The unique index catches it; draw again. */
-async function createOrderWithUniqueNumber(orderFields) {
-  for (let attempt = 1; ; attempt += 1) {
+/** Creates the order and reserves every line in one transaction. */
+async function createOrderWithReservedStock({ lines, currency, customer, email, phone, address, shipping, checkoutAttemptKey }) {
+  const goodsTotal = sumLines(lines, 'unitAmount');
+  // Location-based, computed server-side. The browser's own estimate is never trusted.
+  const { fee: shippingFee } = await resolveShippingFee({ ...shipping, currency, goodsTotal });
+  const revenue = goodsTotal + shippingFee;
+  const operatingExpenses = sumLines(lines, 'unitCost');
+  const orderFields = {
+    checkoutAttemptKey,
+    customer, email, phone, address,
+    shipping: { ...shipping, fee: shippingFee },
+    items: lines,
+    currency,
+    revenue,
+    operatingExpenses,
+    netProfit: revenue - operatingExpenses,
+  };
+
+  for (let attempt = 1; attempt <= MAX_ORDER_NUMBER_ATTEMPTS; attempt += 1) {
+    const session = await Order.db.startSession();
     try {
-      return await Order.create({ ...orderFields, orderNumber: newOrderNumber() });
+      let order;
+      await session.withTransaction(async () => {
+        const reservation = await reserveStock(lines, session);
+        if (!reservation.reserved) throw new HttpError(409, `Insufficient stock for ${reservation.soldOutSku}`);
+        [order] = await Order.create([{ ...orderFields, orderNumber: newOrderNumber() }], { session });
+      }, { readConcern: { level: 'snapshot' }, writeConcern: { w: 'majority' }, readPreference: 'primary' });
+      return order;
     } catch (error) {
+      if (error?.code === DUPLICATE_KEY_ERROR_CODE && error.keyPattern?.checkoutAttemptKey) {
+        const existingOrder = await Order.findOne({ checkoutAttemptKey }).lean();
+        if (existingOrder?.status === 'pending') return existingOrder;
+        if (existingOrder?.status === 'review') {
+          const conflict = new HttpError(409, 'This payment is being reviewed. Please contact support before trying again.');
+          if (existingOrder.reviewReason === REVIEW_REASONS.paymentUnconfirmed) {
+            conflict.outcomeUnknown = true;
+            conflict.orderId = existingOrder._id;
+          }
+          throw conflict;
+        }
+        if (existingOrder) throw new HttpError(410, 'This checkout has already been completed or closed. Start a new checkout.');
+      }
+
       const isNumberCollision = error?.code === DUPLICATE_KEY_ERROR_CODE && error.keyPattern?.orderNumber;
-      if (!isNumberCollision || attempt >= MAX_ORDER_NUMBER_ATTEMPTS) throw error;
+      if (!isNumberCollision || attempt === MAX_ORDER_NUMBER_ATTEMPTS) throw error;
+    } finally {
+      await session.endSession();
     }
-  }
-}
-
-/** Creates the order, reserving stock first. If anything fails after reserving, the stock is put back. */
-async function createOrderWithReservedStock({ lines, currency, customer, email, phone, address, shipping }) {
-  const reservation = await reserveStock(lines);
-  if (!reservation.reserved) throw new HttpError(409, `Insufficient stock for ${reservation.soldOutSku}`);
-
-  try {
-    const goodsTotal = sumLines(lines, 'unitAmount');
-    // Location-based, computed server-side. The browser's own estimate is never trusted.
-    const { fee: shippingFee } = await resolveShippingFee({ ...shipping, currency, goodsTotal });
-    const revenue = goodsTotal + shippingFee; // shipping is charged to the customer
-    const operatingExpenses = sumLines(lines, 'unitCost');
-
-    return await createOrderWithUniqueNumber({
-      customer, email, phone, address,
-      shipping: { ...shipping, fee: shippingFee },
-      items: lines,
-      currency,
-      revenue,
-      operatingExpenses,
-      netProfit: revenue - operatingExpenses,
-    });
-  } catch (error) {
-    await restockItems({ items: lines });
-    throw error;
   }
 }
 
@@ -112,7 +124,10 @@ async function startHostedCheckout(order) {
     );
     // From here the checkout exists at Bachs, so nothing below may fail the order. If saving the id fails,
     // the webhook still finds the order through its reference.
-    await Order.updateOne({ _id: order._id }, { $set: { bachsCheckoutId: session.checkout_id } })
+    await Order.updateOne(
+      { _id: order._id },
+      { $set: { bachsCheckoutId: session.checkout_id, checkoutUrl: session.checkout_url } },
+    )
       .catch((error) => console.error('Could not save the Bachs checkout id:', error));
     return session.checkout_url;
   } catch (error) {
@@ -124,7 +139,10 @@ async function startHostedCheckout(order) {
       // order by its reference and completes it; if the checkout expires, the order is expired and restocked.
       await Order.updateOne({ _id: order._id }, { $set: { status: 'review', reviewReason: REVIEW_REASONS.paymentUnconfirmed } });
     } else {
-      await Order.updateOne({ _id: order._id }, { $set: { status: 'failed' } });
+      await Order.updateOne(
+        { _id: order._id },
+        { $set: { status: 'failed' }, $unset: { checkoutAttemptKey: '' } },
+      );
       await releaseOrderStock(order._id);
     }
 
@@ -153,16 +171,25 @@ export async function createCheckout({ cart, signedInCustomer, idempotencyKey })
 
   try {
     const lines = await buildOrderLines(items, currency);
-    order = await createOrderWithReservedStock({ lines, currency, customer, email, phone, address, shipping });
+    order = await createOrderWithReservedStock({
+      lines, currency, customer, email, phone, address, shipping, checkoutAttemptKey: idempotencyKey,
+    });
     const checkoutUrl = await startHostedCheckout(order);
     // If recording success fails, the customer still gets their checkout link.
-    await completeCheckoutAttempt(idempotencyKey, { orderId: order._id, checkoutUrl })
-      .catch((error) => console.error('Could not record checkout attempt:', error));
+    const completed = await completeCheckoutAttempt(idempotencyKey, claim.ownerToken, { orderId: order._id, checkoutUrl })
+      .catch((error) => {
+        console.error('Could not record checkout attempt:', error);
+        return null;
+      });
+    if (completed && !completed.modifiedCount) {
+      console.warn('Checkout attempt ownership changed before completion:', String(order._id));
+    }
     return checkoutUrl;
   } catch (error) {
-    const bookkeeping = error.outcomeUnknown && order
-      ? markCheckoutAttemptUnknown(idempotencyKey, order._id)
-      : releaseCheckoutAttempt(idempotencyKey);
+    const uncertainOrderId = order?._id ?? error.orderId;
+    const bookkeeping = error.outcomeUnknown && uncertainOrderId
+      ? markCheckoutAttemptUnknown(idempotencyKey, claim.ownerToken, uncertainOrderId)
+      : releaseCheckoutAttempt(idempotencyKey, claim.ownerToken);
     await bookkeeping.catch((bookkeepingError) => console.error('Could not update checkout attempt:', bookkeepingError));
     throw error;
   }

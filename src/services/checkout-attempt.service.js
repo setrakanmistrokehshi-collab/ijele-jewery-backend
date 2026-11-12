@@ -14,9 +14,10 @@ export const fingerprintCart = (cart, customerId) =>
  * (answer with that URL), or `{ replayUrl: null }` when the caller should go ahead and create the order.
  */
 export async function claimCheckoutAttempt(key, fingerprint) {
+  const ownerToken = crypto.randomUUID();
   try {
-    await CheckoutAttempt.create({ key, fingerprint, state: 'processing', startedAt: new Date() });
-    return { replayUrl: null };
+    await CheckoutAttempt.create({ key, fingerprint, state: 'processing', ownerToken, startedAt: new Date() });
+    return { replayUrl: null, ownerToken };
   } catch (error) {
     if (error?.code !== DUPLICATE_KEY_ERROR_CODE) throw error;
   }
@@ -30,7 +31,7 @@ export async function claimCheckoutAttempt(key, fingerprint) {
   if (existing.state === 'done') {
     const order = await Order.findById(existing.orderId).select('status').lean();
     if (order?.status === 'pending' && existing.checkoutUrl) return { replayUrl: existing.checkoutUrl };
-    throw new HttpError(409, 'This checkout is no longer open. Please start a new one.');
+    throw new HttpError(410, 'This checkout is no longer open. Please start a new one.');
   }
   if (existing.state === 'unknown') {
     throw new HttpError(409, 'We could not confirm your last attempt with the payment provider. Please contact us before trying again, so you are not charged twice.');
@@ -41,20 +42,27 @@ export async function claimCheckoutAttempt(key, fingerprint) {
   if (isStale) {
     // Conditional on the old startedAt, so only one of several simultaneous retries takes over.
     const takenOver = await CheckoutAttempt.findOneAndUpdate(
-      { key, state: 'processing', startedAt: existing.startedAt },
-      { $set: { startedAt: new Date() } },
+      { key, state: 'processing', startedAt: existing.startedAt, ...(existing.ownerToken && { ownerToken: existing.ownerToken }) },
+      { $set: { startedAt: new Date(), ownerToken } },
     );
-    if (takenOver) return { replayUrl: null };
+    if (takenOver) return { replayUrl: null, ownerToken };
   }
   throw new HttpError(409, 'Your checkout is already being processed. Please wait a moment.');
 }
 
-export const completeCheckoutAttempt = (key, { orderId, checkoutUrl }) =>
-  CheckoutAttempt.updateOne({ key }, { $set: { state: 'done', orderId, checkoutUrl } });
+export const completeCheckoutAttempt = (key, ownerToken, { orderId, checkoutUrl }) =>
+  CheckoutAttempt.updateOne(
+    { key, state: 'processing', ownerToken },
+    { $set: { state: 'done', orderId, checkoutUrl } },
+  );
 
 /** The provider may have created the checkout: block automatic retries so the customer is not charged twice. */
-export const markCheckoutAttemptUnknown = (key, orderId) =>
-  CheckoutAttempt.updateOne({ key }, { $set: { state: 'unknown', orderId } });
+export const markCheckoutAttemptUnknown = (key, ownerToken, orderId) =>
+  CheckoutAttempt.updateOne(
+    { key, state: 'processing', ownerToken },
+    { $set: { state: 'unknown', orderId } },
+  );
 
 /** The attempt definitely failed, so the same key may try again. */
-export const releaseCheckoutAttempt = (key) => CheckoutAttempt.deleteOne({ key, state: 'processing' });
+export const releaseCheckoutAttempt = (key, ownerToken) =>
+  CheckoutAttempt.deleteOne({ key, state: 'processing', ownerToken });

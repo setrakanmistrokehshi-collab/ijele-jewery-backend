@@ -1,13 +1,15 @@
 import mongoose from 'mongoose';
+import crypto from 'node:crypto';
 
 const ONE_DAY_IN_SECONDS = 24 * 60 * 60;
 
-// Makes "create checkout" idempotent. The browser sends an Idempotency-Key; the unique `key` index guarantees that
-// only one request at a time can create the order for it, and a repeat gets the same hosted-checkout URL back.
+// The attempt lease coordinates requests; the order's unique checkoutAttemptKey remains the durable duplicate guard
+// after this short-lived record expires.
 const checkoutAttemptSchema = new mongoose.Schema({
   key: { type: String, required: true, unique: true },
   fingerprint: { type: String, required: true }, // hash of the basket, so a key cannot be reused for a different one
   state: { type: String, enum: ['processing', 'done', 'unknown'], required: true },
+  ownerToken: { type: String, required: true, default: () => crypto.randomUUID() },
   orderId: { type: mongoose.Schema.Types.ObjectId, ref: 'Order' },
   checkoutUrl: String,
   startedAt: Date,

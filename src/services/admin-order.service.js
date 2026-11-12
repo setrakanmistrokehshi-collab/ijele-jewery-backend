@@ -29,7 +29,11 @@ export async function applyAdminOrderAction({ orderId, adminId, input }) {
     {
       $set: plan.changes,
       // An admin decision settles whatever put the order in review.
-      ...(order.status === 'review' && { $unset: { reviewReason: '' } }),
+      ...(order.status === 'review' ? {
+        $unset: {
+          reviewReason: '',
+        },
+      } : {}),
       $push: { history: historyEntry },
     },
     { new: true },

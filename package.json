@@ -13,6 +13,7 @@
     "test": "node --test \"tests/*.test.js\"",
     "audit": "npm audit --omit=dev",
     "migrate-stock-flags": "node --env-file=.env scripts/migrate-order-stock-flags.js",
+    "migrate-checkout-idempotency": "node --env-file=.env scripts/migrate-checkout-idempotency.js",
     "load-test": "node scripts/load-test-checkout.js"
   },
   "dependencies": {

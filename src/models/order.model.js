@@ -33,6 +33,7 @@ const orderSchema = new Schema(
       },
     ],
     orderNumber: { type: String, unique: true, sparse: true },
+    checkoutAttemptKey: String,
     customer: { type: Schema.Types.ObjectId, ref: 'User', index: true },
     email: { type: String, lowercase: true, index: true },
     phone: String,
@@ -58,6 +59,7 @@ const orderSchema = new Schema(
     // however many times an expiry webhook, the sweeper or an admin tries.
     stockReleased: { type: Boolean, default: false },
     bachsCheckoutId: { type: String, index: true },
+    checkoutUrl: String,
     bachsChargeId: { type: String, index: true },
     paidAt: Date,
     refundedAt: Date,
@@ -65,6 +67,14 @@ const orderSchema = new Schema(
     history: [historyEntrySchema],
   },
   { timestamps: true },
+);
+
+orderSchema.index(
+  { checkoutAttemptKey: 1 },
+  {
+    unique: true,
+    partialFilterExpression: { checkoutAttemptKey: { $type: 'string' } },
+  },
 );
 
 export const Order = model('Order', orderSchema);
