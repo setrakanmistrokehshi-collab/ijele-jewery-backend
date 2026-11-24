@@ -2,6 +2,7 @@
 export const toCustomerOrderView = (order) => ({
   orderNumber: order.orderNumber,
   placedAt: order.createdAt,
+  status: order.status,
   step: order.step,
   carrier: order.carrier,
   trackingNumber: order.trackingNumber,
