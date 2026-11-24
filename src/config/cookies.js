@@ -1,6 +1,6 @@
 import { MILLISECONDS_PER_DAY, MILLISECONDS_PER_HOUR } from './constants.js';
 
-const secureCookieDefaults = { httpOnly: true, secure: true, sameSite: 'strict', path: '/' };
+const secureCookieDefaults = { httpOnly: true, secure: true, sameSite: 'none', path: '/' };
 
 export const ADMIN_SESSION_LIFETIME_MS = 8 * MILLISECONDS_PER_HOUR;
 export const CUSTOMER_SESSION_LIFETIME_MS = 30 * MILLISECONDS_PER_DAY;
