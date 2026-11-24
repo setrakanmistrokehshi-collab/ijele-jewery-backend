@@ -44,6 +44,7 @@ app.use(express.json({ limit: DEFAULT_JSON_LIMIT }));
 app.use(cookieParser());
 app.use(attachCustomer);
 
+app.get('/', (_request, response) => response.json({ message: 'Ijele API backend is running' }));
 app.use('/api', apiRouter);
 app.get('/healthz', noStore, (_request, response) => {
   const databaseConnected = mongoose.connection.readyState === 1;
