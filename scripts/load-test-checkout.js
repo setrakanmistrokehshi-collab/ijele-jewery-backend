@@ -30,7 +30,7 @@ async function oneRequest() {
   try {
     const response = await fetch(`${BASE_URL}/api/checkout/create-session`, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json', 'X-Requested-With': 'aurora', 'Idempotency-Key': crypto.randomUUID() },
+      headers: { 'Content-Type': 'application/json', 'X-Requested-With': 'ijele', 'Idempotency-Key': crypto.randomUUID() },
       body: JSON.stringify(basket()),
       signal: AbortSignal.timeout(40_000),
     });

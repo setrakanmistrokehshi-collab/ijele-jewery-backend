@@ -7,13 +7,13 @@ export const ORDER_STATUSES = [
 /** Orders in these states never had money collected, so an admin may delete them. */
 export const DELETABLE_ORDER_STATUSES = ['pending', 'expired', 'failed', 'cancelled'];
 
-export const ORDER_NUMBER_PREFIX = 'AUR';
+export const ORDER_NUMBER_PREFIX = 'IJL';
 export const SKU_PATTERN = /^[A-Z0-9-]{3,40}$/;
 export const OBJECT_ID_PATTERN = /^[a-f\d]{24}$/i;
 
 /** Every browser write must send this header; a cross-site form or image tag cannot. */
 export const CSRF_HEADER_NAME = 'x-requested-with';
-export const CSRF_HEADER_VALUE = 'aurora';
+export const CSRF_HEADER_VALUE = 'ijele';
 
 export const ADMIN_SESSION_COOKIE = 'adminSessionId';
 export const CUSTOMER_SESSION_COOKIE = 'customerSessionId';

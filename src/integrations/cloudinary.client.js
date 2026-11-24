@@ -2,7 +2,7 @@
 import { v2 as cloudinary } from 'cloudinary';
 import { env } from '../config/env.js';
 
-const UPLOAD_FOLDER = 'aurora/products';
+const UPLOAD_FOLDER = 'ijele/products';
 const ALLOWED_FORMATS = 'jpg,png,webp';
 
 export const isCloudinaryConfigured = () =>

@@ -1,5 +1,6 @@
 import cookieParser from 'cookie-parser';
 import express from 'express';
+import mongoose from 'mongoose';
 import { handleBachsWebhook } from './controllers/checkout.controller.js';
 import { attachCustomer } from './middleware/attach-customer.js';
 import { cors } from './middleware/cors.js';
@@ -44,7 +45,13 @@ app.use(cookieParser());
 app.use(attachCustomer);
 
 app.use('/api', apiRouter);
-app.get('/healthz', (_request, response) => response.json({ ok: true }));
+app.get('/healthz', noStore, (_request, response) => {
+  const databaseConnected = mongoose.connection.readyState === 1;
+  response.status(databaseConnected ? 200 : 503).json({
+    ok: databaseConnected,
+    database: databaseConnected ? 'connected' : 'disconnected',
+  });
+});
 
 app.use('/api', notFoundHandler);
 app.use(errorHandler);

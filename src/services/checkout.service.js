@@ -169,6 +169,9 @@ export async function createCheckout({ cart, signedInCustomer, idempotencyKey, r
     throw new HttpError(401, 'Sign in with Google to continue checkout');
   }
   const clientOrigin = resolveClientOrigin(requestOrigin, env.CLIENT_ORIGIN);
+  if (!clientOrigin) {
+    throw new HttpError(503, 'Checkout is unavailable because no public HTTPS return URL is configured');
+  }
   const claim = await claimCheckoutAttempt(idempotencyKey, fingerprintCart(cart, signedInCustomer._id));
   if (claim.replayUrl) return claim.replayUrl;
 

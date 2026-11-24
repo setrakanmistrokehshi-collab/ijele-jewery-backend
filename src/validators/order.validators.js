@@ -4,7 +4,7 @@ import { ORDER_ACTIONS } from '../services/order-workflow.js';
 
 /** A guest proves ownership of an order with its number AND the email it was placed with. */
 export const orderLookupSchema = z.strictObject({
-  orderNumber: z.string().toUpperCase().regex(/^AUR-\d{6,8}$/),
+  orderNumber: z.string().toUpperCase().regex(/^(?:AUR|IJL)-\d{6,8}$/),
   email: emailAddress,
 });
 

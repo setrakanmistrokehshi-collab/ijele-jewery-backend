@@ -43,7 +43,13 @@ test('checkout return URLs select only a configured storefront origin', () => {
     'https://store.example.com',
   ];
 
-  assert.equal(resolveClientOrigin('http://127.0.0.1:5173', configuredOrigins), 'http://127.0.0.1:5173');
-  assert.equal(resolveClientOrigin('https://attacker.example', configuredOrigins), 'http://localhost:5173');
-  assert.equal(resolveClientOrigin(undefined, configuredOrigins), 'http://localhost:5173');
+  assert.equal(resolveClientOrigin('http://127.0.0.1:5173', configuredOrigins), 'https://store.example.com');
+  assert.equal(resolveClientOrigin('https://store.example.com', configuredOrigins), 'https://store.example.com');
+  assert.equal(resolveClientOrigin('https://attacker.example', configuredOrigins), 'https://store.example.com');
+  assert.equal(resolveClientOrigin(undefined, configuredOrigins), 'https://store.example.com');
+});
+
+test('checkout return URL resolution refuses non-public origins', () => {
+  assert.equal(resolveClientOrigin('https://localhost', ['http://localhost:5173', 'https://localhost']), null);
+  assert.equal(resolveClientOrigin(undefined, ['https://127.0.0.1', 'https://192.168.1.5']), null);
 });

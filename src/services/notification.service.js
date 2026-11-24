@@ -19,7 +19,7 @@ function buildOrderEmailHtml(order, subject) {
     : '';
   return (
     `<div style="font-family:Georgia,serif;max-width:520px"><h2>${escapeHtml(subject)}</h2>${trackingLine}` +
-    `<p><a href="${ordersUrl}">View your order status</a></p><p>Aurora Fine Jewelry</p></div>`
+    `<p><a href="${ordersUrl}">View your order status</a></p><p>Ijele Smart Jewelry</p></div>`
   );
 }
 
@@ -31,7 +31,7 @@ export async function notifyCustomerOfOrderUpdate(order, description = STEP_DESC
     sendOneSignalNotification({
       target_channel: 'push',
       include_aliases: { external_id: [createPushId(order.email)] },
-      headings: { en: 'Aurora' },
+      headings: { en: 'Ijele' },
       contents: { en: subject },
       url: `${new URL(env.CLIENT_ORIGIN[0]).origin}/orders`,
     }),
