@@ -14,4 +14,21 @@ test('customer order view includes payment status for pending checkouts', () => 
   });
 
   assert.equal(view.status, 'pending');
+  assert.equal(view.paymentPending, true);
+});
+
+test('customer order view keeps uncertain payment checkouts marked as pending', () => {
+  const view = toCustomerOrderView({
+    orderNumber: 'IJL-1234567',
+    createdAt: new Date('2026-11-24T12:00:00Z'),
+    status: 'review',
+    reviewReason: 'payment-unconfirmed',
+    step: 0,
+    currency: 'USD',
+    revenue: 5000,
+    items: [{ name: 'Pendant', qty: 1 }],
+  });
+
+  assert.equal(view.status, 'review');
+  assert.equal(view.paymentPending, true);
 });

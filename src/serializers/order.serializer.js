@@ -3,6 +3,7 @@ export const toCustomerOrderView = (order) => ({
   orderNumber: order.orderNumber,
   placedAt: order.createdAt,
   status: order.status,
+  paymentPending: order.status === 'pending' || (order.status === 'review' && order.reviewReason === 'payment-unconfirmed'),
   step: order.step,
   carrier: order.carrier,
   trackingNumber: order.trackingNumber,
