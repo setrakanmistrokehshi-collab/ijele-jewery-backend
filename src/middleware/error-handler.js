@@ -11,7 +11,10 @@ const DUPLICATE_KEY_ERROR_CODE = 11000;
 export function errorHandler(error, _request, response, _next) {
   if (error instanceof HttpError) {
     if (error.retryAfterSeconds) response.set('Retry-After', String(error.retryAfterSeconds));
-    return response.status(error.status).json({ error: error.message });
+    return response.status(error.status).json({
+      error: error.message,
+      ...(typeof error.outcomeUnknown === 'boolean' && { outcomeUnknown: error.outcomeUnknown }),
+    });
   }
 
   if (error instanceof ZodError) {
