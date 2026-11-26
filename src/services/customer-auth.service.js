@@ -33,7 +33,7 @@ export async function signInCustomer(profile) {
   const customer = await Customer.findOneAndUpdate(
     { googleSub: profile.sub },
     { $set: { email, name: String(profile.name ?? '').slice(0, 120), picture, trusted } },
-    { upsert: true, new: true },
+    { upsert: true, returnDocument: 'after', runValidators: true },
   );
 
   const token = generateSessionToken();

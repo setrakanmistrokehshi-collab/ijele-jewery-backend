@@ -25,7 +25,7 @@ export async function createZone(request, response) {
 export async function updateZone(request, response) {
   const { id } = idParams.parse(request.params);
   const zone = await ShippingZone.findByIdAndUpdate(id, shippingZoneSchema.parse(request.body), {
-    new: true,
+    returnDocument: 'after',
     runValidators: true,
   });
   clearShippingZoneCache();

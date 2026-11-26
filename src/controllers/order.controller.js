@@ -52,16 +52,20 @@ export async function getOrderStats(_request, response) {
   response.json(stats);
 }
 
-/** Paid, refunded and refund-pending orders are financial records and can never be deleted. */
+/**
+ * Paid, refunded and refund-pending orders are financial records and can never be deleted, and neither can a pending
+ * one (it still holds stock and may yet be paid) or one whose stock has not been returned yet.
+ */
 export async function deleteOrder(request, response) {
   const { id } = orderIdParams.parse(request.params);
   const result = await Order.deleteOne({
     _id: id,
     status: trustedQueryOperator({ $in: DELETABLE_ORDER_STATUSES }),
+    stockReleased: true,
   });
   return result.deletedCount
     ? response.status(204).end()
-    : response.status(409).json({ error: 'Only pending, expired, failed or cancelled orders can be deleted' });
+    : response.status(409).json({ error: 'Only expired, failed or cancelled orders whose stock is already returned can be deleted. Cancel a pending order first.' });
 }
 
 export async function runOrderAction(request, response) {

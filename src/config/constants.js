@@ -4,8 +4,11 @@ export const PRODUCT_CATEGORIES = ['Watch', 'Chain', 'Necklace'];
 export const ORDER_STATUSES = [
   'pending', 'paid', 'expired', 'failed', 'review', 'cancelled', 'refund_pending', 'refunded',
 ];
-/** Orders in these states never had money collected, so an admin may delete them. */
-export const DELETABLE_ORDER_STATUSES = ['pending', 'expired', 'failed', 'cancelled'];
+/**
+ * Orders in these states never had money collected, so an admin may delete them (and only once their stock is back
+ * on the shelf). 'pending' is NOT deletable: it still holds stock and may yet be paid. Cancel it instead.
+ */
+export const DELETABLE_ORDER_STATUSES = ['expired', 'failed', 'cancelled'];
 
 export const ORDER_NUMBER_PREFIX = 'IJL';
 export const SKU_PATTERN = /^[A-Z0-9-]{3,40}$/;
@@ -27,5 +30,6 @@ export const REVIEW_REASONS = {
   paymentUnconfirmed: 'payment-unconfirmed', // Bachs may have created the checkout but we never got its answer
   paymentMismatch: 'payment-mismatch', // wrong currency, wrong amount or underpaid
   latePayment: 'late-payment', // money arrived after the order expired, failed or was cancelled
-  refundAmountUnknown: 'refund-amount-unknown', // a refund event without an amount
+  refundAmountUnknown: 'refund-amount-unknown', // a refund event without a usable amount or currency
+  paymentCheckNeeded: 'payment-check-needed', // Bachs shows payment activity on a checkout we never heard a webhook for
 };

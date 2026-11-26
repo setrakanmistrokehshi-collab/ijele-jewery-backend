@@ -31,7 +31,7 @@ export async function releaseOrderStock(orderId) {
       const claimedOrder = await Order.findOneAndUpdate(
         { _id: orderId, stockReleased: trustedQueryOperator({ $ne: true }) },
         { $set: { stockReleased: true } },
-        { new: true, session },
+        { returnDocument: 'after', session },
       ).select('items').lean();
       if (!claimedOrder) return;
 
@@ -41,7 +41,9 @@ export async function releaseOrderStock(orderId) {
           { $inc: { stock: line.qty } },
           { session },
         );
-        if (!result.matchedCount) throw new Error(`Cannot restock missing product ${line.sku} for order ${orderId}`);
+        // A deleted product has no shelf to return to. Skip it so the other lines of the order are still restocked
+        // (otherwise the whole release rolls back and is retried, and fails, forever).
+        if (!result.matchedCount) console.warn(`Skipped restock of deleted product ${line.sku} for order ${orderId}`);
       }
       released = true;
     }, { readConcern: { level: 'snapshot' }, writeConcern: { w: 'majority' }, readPreference: 'primary' });

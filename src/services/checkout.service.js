@@ -10,11 +10,14 @@ import { trustedQueryOperator } from '../utils/trusted-query-operator.js';
 import { MAX_QUANTITY_PER_ITEM } from '../validators/checkout.validators.js';
 import {
   claimCheckoutAttempt, completeCheckoutAttempt, fingerprintCart, markCheckoutAttemptUnknown, releaseCheckoutAttempt,
+  resolveUnknownCheckoutAttempt,
 } from './checkout-attempt.service.js';
 import { resolveShippingFee } from './shipping.service.js';
 import { releaseOrderStock, reserveStock } from './stock.service.js';
 
 const CHECKOUT_LIFETIME_MINUTES = 30;
+/** Stock is held while a checkout is open, so one customer may only hold a few at a time (inventory-parking guard). */
+export const MAX_OPEN_CHECKOUTS_PER_CUSTOMER = 3;
 const MAX_ORDER_NUMBER_ATTEMPTS = 5;
 const DUPLICATE_KEY_ERROR_CODE = 11000;
 
@@ -59,14 +62,16 @@ const sumLines = (lines, unitField) => lines.reduce((total, line) => total + lin
 const newOrderNumber = () => `${ORDER_NUMBER_PREFIX}-${crypto.randomInt(1_000_000, 10_000_000)}`;
 
 /** Creates the order and reserves every line in one transaction. */
-async function createOrderWithReservedStock({ lines, currency, customer, email, phone, address, shipping, checkoutAttemptKey }) {
+async function createOrderWithReservedStock({
+  lines, currency, customer, email, phone, address, shipping, checkoutAttemptKey, clientOrigin,
+}) {
   const goodsTotal = sumLines(lines, 'unitAmount');
   // Location-based, computed server-side. The browser's own estimate is never trusted.
   const { fee: shippingFee } = await resolveShippingFee({ ...shipping, currency, goodsTotal });
   const revenue = goodsTotal + shippingFee;
   const operatingExpenses = sumLines(lines, 'unitCost');
   const orderFields = {
-    checkoutAttemptKey,
+    checkoutAttemptKey, clientOrigin,
     customer, email, phone, address,
     shipping: { ...shipping, fee: shippingFee },
     items: lines,
@@ -109,19 +114,54 @@ async function createOrderWithReservedStock({ lines, currency, customer, email, 
   }
 }
 
+/** The exact request sent to Bachs for an order. Identical on a retry, so Bachs' idempotency key can replay it. */
+const buildCheckoutParameters = (order, clientOrigin) => ({
+  pricing: { currency: order.currency, amount: minorUnitsToDecimalString(order.revenue) },
+  reference: String(order._id),
+  metadata: { orderId: String(order._id) },
+  expires_in_minutes: CHECKOUT_LIFETIME_MINUTES,
+  success_url: `${clientOrigin}/thanks`,
+  cancel_url: `${clientOrigin}/checkout`, // back to the form, with the basket and details still there
+});
+const checkoutIdempotencyKey = (order) => ({ idempotencyKey: `checkout-${order._id}` });
+
+/**
+ * Settles an order stuck in review/payment-unconfirmed by repeating the checkout creation with the SAME idempotency
+ * key: Bachs either replays the checkout it already made or makes it now. Returns 'resumed', 'skipped' or 'failed'.
+ */
+export async function resumeUnconfirmedCheckout(order) {
+  if (!order.clientOrigin) return 'skipped';
+  try {
+    const session = await createBachsCheckoutSession(
+      buildCheckoutParameters(order, order.clientOrigin),
+      checkoutIdempotencyKey(order),
+    );
+    const resumed = await Order.updateOne(
+      { _id: order._id, status: 'review', reviewReason: REVIEW_REASONS.paymentUnconfirmed },
+      {
+        $set: { status: 'pending', bachsCheckoutId: session.checkout_id, checkoutUrl: session.checkout_url },
+        $unset: { reviewReason: '' },
+        $push: { history: { at: new Date(), by: 'system', action: 'checkout-resumed', from: 'review', to: 'pending', note: 'Checkout confirmed with Bachs on retry' } },
+      },
+    );
+    if (!resumed.modifiedCount) return 'skipped'; // a webhook settled it first
+    if (order.checkoutAttemptKey) {
+      await resolveUnknownCheckoutAttempt(order.checkoutAttemptKey, { orderId: order._id, checkoutUrl: session.checkout_url })
+        .catch((error) => console.error('Could not update checkout attempt:', error));
+    }
+    return 'resumed';
+  } catch (error) {
+    console.error('Could not resume checkout for order', String(order._id), error.message);
+    return 'failed';
+  }
+}
+
 /** Opens the hosted Bachs checkout for an order and returns its URL. */
 async function startHostedCheckout(order, clientOrigin) {
   try {
     const session = await createBachsCheckoutSession(
-      {
-        pricing: { currency: order.currency, amount: minorUnitsToDecimalString(order.revenue) },
-        reference: String(order._id),
-        metadata: { orderId: String(order._id) },
-        expires_in_minutes: CHECKOUT_LIFETIME_MINUTES,
-        success_url: `${clientOrigin}/thanks`,
-        cancel_url: `${clientOrigin}/checkout`, // back to the form, with the basket and details still there
-      },
-      { idempotencyKey: `checkout-${order._id}` },
+      buildCheckoutParameters(order, clientOrigin),
+      checkoutIdempotencyKey(order),
     );
     // From here the checkout exists at Bachs, so nothing below may fail the order. If saving the id fails,
     // the webhook still finds the order through its reference.
@@ -138,6 +178,9 @@ async function startHostedCheckout(order, clientOrigin) {
       status: error.status ?? error.responseStatus,
       errorCode: error.errorCode,
       requestId: error.requestId,
+      // Bachs' own explanation (e.g. "API key missing required scope"); it never contains our key.
+      message: error.message,
+      detail: error.body?.detail,
       outcomeUnknown,
     });
 
@@ -157,6 +200,17 @@ async function startHostedCheckout(order, clientOrigin) {
     const reported = error instanceof HttpError ? error : new HttpError(502, 'Payment provider unavailable');
     reported.outcomeUnknown = outcomeUnknown;
     throw reported;
+  }
+}
+
+/** A customer who already holds several unpaid checkouts must finish or wait for them before opening another. */
+async function assertCustomerHasRoomForCheckout(customerId) {
+  const openCheckouts = await Order.countDocuments({
+    customer: customerId,
+    $or: [{ status: 'pending' }, { status: 'review', reviewReason: REVIEW_REASONS.paymentUnconfirmed }],
+  });
+  if (openCheckouts >= MAX_OPEN_CHECKOUTS_PER_CUSTOMER) {
+    throw new HttpError(429, 'You have several unpaid checkouts open. Please complete one, or wait a few minutes for them to expire.');
   }
 }
 
@@ -181,9 +235,10 @@ export async function createCheckout({ cart, signedInCustomer, idempotencyKey, r
   let order = null;
 
   try {
+    await assertCustomerHasRoomForCheckout(customer);
     const lines = await buildOrderLines(items, currency);
     order = await createOrderWithReservedStock({
-      lines, currency, customer, email, phone, address, shipping, checkoutAttemptKey: idempotencyKey,
+      lines, currency, customer, email, phone, address, shipping, checkoutAttemptKey: idempotencyKey, clientOrigin,
     });
     const checkoutUrl = await startHostedCheckout(order, clientOrigin);
     // If recording success fails, the customer still gets their checkout link.

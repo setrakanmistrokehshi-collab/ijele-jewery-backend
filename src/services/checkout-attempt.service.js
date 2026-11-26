@@ -34,7 +34,11 @@ export async function claimCheckoutAttempt(key, fingerprint) {
     throw new HttpError(410, 'This checkout is no longer open. Please start a new one.');
   }
   if (existing.state === 'unknown') {
-    throw new HttpError(409, 'We could not confirm your last attempt with the payment provider. Please contact us before trying again, so you are not charged twice.');
+    const order = await Order.findById(existing.orderId).select('status').lean();
+    // The sweeper settles these: the order becomes pending (resumed) or expired (stock returned).
+    if (order?.status === 'pending' && existing.checkoutUrl) return { replayUrl: existing.checkoutUrl };
+    if (!order || order.status !== 'review') throw new HttpError(410, 'This checkout is no longer open. Please start a new one.');
+    throw new HttpError(409, 'We are still confirming your last attempt with the payment provider. Please wait a few minutes before trying again, so you are not charged twice.');
   }
 
   // state === 'processing': either another request is working on it right now, or that request crashed.
@@ -62,6 +66,10 @@ export const markCheckoutAttemptUnknown = (key, ownerToken, orderId) =>
     { key, state: 'processing', ownerToken },
     { $set: { state: 'unknown', orderId } },
   );
+
+/** The sweeper confirmed the checkout with Bachs: an 'unknown' attempt becomes a normal finished one. */
+export const resolveUnknownCheckoutAttempt = (key, { orderId, checkoutUrl }) =>
+  CheckoutAttempt.updateOne({ key, state: 'unknown' }, { $set: { state: 'done', orderId, checkoutUrl } });
 
 /** The attempt definitely failed, so the same key may try again. */
 export const releaseCheckoutAttempt = (key, ownerToken) =>

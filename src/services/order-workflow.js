@@ -29,6 +29,8 @@ const noteRequired = (reason) => ({ ok: false, error: `Add a note: ${reason}.` }
  * `{ ok: true, changes, from, to, shouldRestock, notifyCustomer }` where
  *  - `changes` is what to write on the order,
  *  - `shouldRestock` says whether the items go back on the shelf,
+ *  - `shouldReserveStock` says the items must be taken off the shelf again (a late payment whose stock was already
+ *    returned: without this the item would be sold twice),
  *  - `notifyCustomer` is 'step' | 'refunded' | null (the kind of message to send).
  */
 export function planOrderAction(order, action, input = {}) {
@@ -60,6 +62,7 @@ export function planOrderAction(order, action, input = {}) {
       return {
         ok: true, changes: { status: 'paid', paidAt: new Date(), step: 0 },
         from: order.status, to: 'paid', shouldRestock: false, notifyCustomer: null,
+        shouldReserveStock: order.stockReleased === true,
       };
     case 'cancel':
       if (order.status === 'review' && !note) return noteRequired('say why this order is being cancelled');

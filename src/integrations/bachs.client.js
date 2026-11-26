@@ -21,6 +21,10 @@ const paymentCallLimiter = new ConcurrencyLimiter({
 export const createBachsCheckoutSession = (parameters, options) =>
   paymentCallLimiter.run(() => withTimeout(bachsClient.checkoutSessions.create(parameters, options), BACHS_CALL_TIMEOUT_MS));
 
+/** Reads a checkout's real state from Bachs (used by the sweeper before it gives up on an unpaid order). */
+export const getBachsCheckoutSession = (checkoutId) =>
+  paymentCallLimiter.run(() => withTimeout(bachsClient.checkoutSessions.get(checkoutId), BACHS_CALL_TIMEOUT_MS));
+
 export const getPaymentCallStats = () => paymentCallLimiter.stats;
 
 /**

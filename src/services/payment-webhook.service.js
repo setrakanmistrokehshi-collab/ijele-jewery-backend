@@ -39,7 +39,17 @@ async function findOrderForEvent(eventData, chargeId) {
 async function handleCollection(event, eventData, chargeId) {
   const order = await findOrderForEvent(eventData, chargeId);
   if (!order) return 'unmatched';
-  if (order.status === 'paid') return 'duplicate';
+  if (order.status === 'paid') {
+    // The same charge again is a harmless redelivery. A DIFFERENT charge means the customer paid twice.
+    const isDifferentCharge = chargeId && order.bachsChargeId && chargeId !== order.bachsChargeId;
+    if (!isDifferentCharge) return 'duplicate';
+    console.error(`DOUBLE PAYMENT: order ${order._id} was already paid by ${order.bachsChargeId}; Bachs reports another charge ${chargeId}. Refund one of them.`);
+    await Order.updateOne(
+      { _id: order._id, 'history.action': trustedQueryOperator({ $ne: `duplicate-charge:${chargeId}` }) },
+      { $push: { history: systemHistoryEntry(`duplicate-charge:${chargeId}`, 'paid', 'A second payment arrived for this paid order. Refund one of the two in the Bachs dashboard.') } },
+    );
+    return 'duplicate-charge';
+  }
 
   const isExactPayment =
     event.type === 'collection.succeeded' &&
@@ -60,7 +70,11 @@ async function handleCollection(event, eventData, chargeId) {
 
   // 2. We never learned whether Bachs created the checkout, and the money did arrive: settle it.
   const fromUnconfirmed = await Order.updateOne(
-    { _id: order._id, status: 'review', reviewReason: REVIEW_REASONS.paymentUnconfirmed },
+    {
+      _id: order._id,
+      status: 'review',
+      reviewReason: trustedQueryOperator({ $in: [REVIEW_REASONS.paymentUnconfirmed, REVIEW_REASONS.paymentCheckNeeded] }),
+    },
     isExactPayment
       ? { $set: { status: 'paid', ...paymentDetails }, $unset: { reviewReason: '' }, $push: { history: confirmedEntry } }
       : { $set: { reviewReason: REVIEW_REASONS.paymentMismatch, ...paymentDetails }, $push: { history: mismatchEntry } },
@@ -129,19 +143,19 @@ async function handleRefund(event, eventData, chargeId) {
     return reverted.modifiedCount ? 'refund-failed' : 'ignored';
   }
 
-  if (eventData.amount == null) {
-    // Without an amount we cannot tell a full refund from a partial one, so never assume.
+  if (eventData.amount == null || eventData.currency !== order.currency) {
+    // Without an amount (or in another currency) we cannot tell a full refund from a partial one, so never assume.
     const flagged = await Order.updateOne(
       { _id: order._id, status: trustedQueryOperator({ $in: ['paid', 'refund_pending'] }) },
       {
         $set: { status: 'review', reviewReason: REVIEW_REASONS.refundAmountUnknown },
-        $push: { history: systemHistoryEntry('refund-amount-unknown', 'review', 'Bachs confirmed a refund without an amount. Check it in the Bachs dashboard.') },
+        $push: { history: systemHistoryEntry('refund-amount-unknown', 'review', 'Bachs confirmed a refund without a usable amount or currency. Check it in the Bachs dashboard.') },
       },
     );
     return flagged.modifiedCount ? 'review' : 'ignored';
   }
 
-  const isPartialRefund = eventData.currency === order.currency && decimalStringToMinorUnits(eventData.amount) < order.revenue;
+  const isPartialRefund = decimalStringToMinorUnits(eventData.amount) < order.revenue;
   if (isPartialRefund) {
     await Order.updateOne(
       { _id: order._id },
@@ -160,7 +174,7 @@ async function handleRefund(event, eventData, chargeId) {
       },
       $push: { history: systemHistoryEntry('refund-paid', 'refunded', 'Confirmed by Bachs') },
     },
-    { new: true },
+    { returnDocument: 'after' },
   ).lean();
   if (!refundedOrder) return 'ignored';
   notifyCustomerOfOrderUpdate(refundedOrder, 'refunded').catch((error) => console.error(error));

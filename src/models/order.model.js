@@ -60,6 +60,7 @@ const orderSchema = new Schema(
     stockReleased: { type: Boolean, default: false },
     bachsCheckoutId: { type: String, index: true },
     checkoutUrl: String,
+    clientOrigin: String, // the storefront origin used in the checkout's return URLs (needed to retry creation identically)
     bachsChargeId: { type: String, index: true },
     paidAt: Date,
     refundedAt: Date,
@@ -68,6 +69,9 @@ const orderSchema = new Schema(
   },
   { timestamps: true },
 );
+
+orderSchema.index({ 'items.product': 1 }); // "is this product on any order?" (product deletion)
+orderSchema.index({ status: 1, createdAt: 1 }); // the reconciliation sweeps
 
 orderSchema.index(
   { checkoutAttemptKey: 1 },
