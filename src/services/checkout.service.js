@@ -175,7 +175,7 @@ async function startHostedCheckout(order, clientOrigin) {
     const outcomeUnknown = mayHaveReachedBachs(error);
     console.error('Bachs checkout creation failed:', {
       name: error.name,
-      status: error.status ?? error.responseStatus,
+      status: error.statusCode ?? error.responseStatusCode,
       errorCode: error.errorCode,
       requestId: error.requestId,
       // Bachs' own explanation (e.g. "API key missing required scope"); it never contains our key.
