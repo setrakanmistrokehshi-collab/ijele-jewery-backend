@@ -40,8 +40,7 @@ export async function notifyCustomerOfOrderUpdate(order, description = STEP_DESC
       url: `${new URL(env.CLIENT_ORIGIN[0]).origin}/orders`,
     }),
     sendOneSignalNotification({
-      target_channel: 'email',
-      include_email_tokens: [order.email],
+      email_to: [order.email],
       email_subject: subject,
       email_body: buildOrderEmailHtml(order, subject),
     }),
