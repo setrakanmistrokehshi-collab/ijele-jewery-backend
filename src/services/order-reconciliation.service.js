@@ -3,6 +3,8 @@
 import { REVIEW_REASONS } from '../config/constants.js';
 import { getBachsCheckoutSession } from '../integrations/bachs.client.js';
 import { Order } from '../models/index.js';
+import { applyBachsCheckoutStatus } from './payment-status.service.js';
+import { processBachsEvent } from './payment-webhook.service.js';
 import { trustedQueryOperator } from '../utils/trusted-query-operator.js';
 import { resumeUnconfirmedCheckout } from './checkout.service.js';
 import { releaseOrderStock } from './stock.service.js';
@@ -32,7 +34,7 @@ export function showsPaymentActivity(checkout) {
 }
 
 /** Pending orders past their checkout's life: ask Bachs first, so a paid order whose webhook got lost is not expired. */
-async function expireAbandonedPending(cutoff, getCheckout) {
+async function expireAbandonedPending(cutoff, getCheckout, processEvent) {
   const abandoned = await Order.find({
     status: 'pending',
     createdAt: trustedQueryOperator({ $lt: cutoff }),
@@ -47,6 +49,13 @@ async function expireAbandonedPending(cutoff, getCheckout) {
       } catch (error) {
         console.error('Could not check checkout with Bachs; order left as is until the next sweep:', String(_id), error.message);
         continue; // never expire an order we could not verify
+      }
+      if (!checkout || String(checkout.checkout_id) !== String(bachsCheckoutId)) {
+        console.error('Bachs returned an invalid checkout; order left as is until the next sweep:', String(_id));
+        continue;
+      }
+      if (await applyBachsCheckoutStatus({ _id, bachsCheckoutId, status: 'pending' }, checkout, processEvent)) {
+        continue;
       }
       if (showsPaymentActivity(checkout)) {
         await Order.updateOne(
@@ -123,10 +132,13 @@ async function settleUnconfirmedOrders(now, cutoff) {
  * 3. Finishes any stock release that failed earlier on an expired, failed or cancelled order.
  * All are conditional and idempotent, so several servers can run this at the same time.
  */
-export async function reconcileOrders(now = Date.now(), { getCheckout = getBachsCheckoutSession } = {}) {
+export async function reconcileOrders(now = Date.now(), {
+  getCheckout = getBachsCheckoutSession,
+  processEvent = processBachsEvent,
+} = {}) {
   const cutoff = new Date(now - ABANDONED_AFTER_MS);
 
-  const expired = await expireAbandonedPending(cutoff, getCheckout);
+  const expired = await expireAbandonedPending(cutoff, getCheckout, processEvent);
   const unconfirmed = await settleUnconfirmedOrders(now, cutoff);
 
   // `stockReleased: false` (explicitly) only matches orders created by this version, never older records.

@@ -195,7 +195,7 @@ async function handleRefund(event, eventData, chargeId) {
   return 'refunded';
 }
 
-/** Applies one verified Bachs event and returns what happened. Called at most once per event by webhook-event.service. */
+/** Applies a verified Bachs event or checkout status and returns what happened. */
 export async function processBachsEvent(event) {
   const eventData = event.data ?? {};
   const chargeId = eventData.charge_id ? String(eventData.charge_id) : undefined;

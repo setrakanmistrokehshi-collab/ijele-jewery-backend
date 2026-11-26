@@ -60,6 +60,7 @@ const orderSchema = new Schema(
     stockReleased: { type: Boolean, default: false },
     bachsCheckoutId: { type: String, index: true },
     checkoutUrl: String,
+    lastPaymentStatusCheckAt: Date,
     clientOrigin: String, // the storefront origin used in the checkout's return URLs (needed to retry creation identically)
     bachsChargeId: { type: String, index: true },
     paidAt: Date,

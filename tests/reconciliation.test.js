@@ -24,15 +24,54 @@ function stubOrders(t, pendingOrders) {
   });
 }
 
-test('a pending order that Bachs shows as paid is sent to review, never expired', async (t) => {
+test('payment activity without confirmed success is sent to review, never expired', async (t) => {
   const calls = stubOrders(t, [{ _id: 'o1', bachsCheckoutId: 'chk_1' }]);
-  await reconcileOrders(Date.now(), { getCheckout: async () => ({ payment_status: 'succeeded' }) });
+  await reconcileOrders(Date.now(), {
+    getCheckout: async () => ({ checkout_id: 'chk_1', payment_status: 'underpaid' }),
+  });
 
   assert.equal(calls.updateOne.length, 1);
   const [filter, update] = calls.updateOne[0];
   assert.deepEqual(filter, { _id: 'o1', status: 'pending' });
   assert.equal(update.$set.status, 'review');
   assert.equal(update.$set.reviewReason, 'payment-check-needed');
+});
+
+test('a confirmed Bachs payment is passed to the normal settlement path before expiry', async (t) => {
+  const calls = stubOrders(t, [{ _id: 'o1', bachsCheckoutId: 'chk_1' }]);
+  let processedEvent;
+  const result = await reconcileOrders(Date.now(), {
+    getCheckout: async () => ({
+      checkout_id: 'chk_1',
+      payment_status: 'succeeded',
+      amount: '150.00',
+      currency: 'USD',
+    }),
+    processEvent: async (event) => {
+      processedEvent = event;
+      return 'paid';
+    },
+  });
+
+  assert.equal(result.expired, 0);
+  assert.equal(calls.updateOne.length, 0);
+  assert.equal(processedEvent.type, 'collection.succeeded');
+  assert.equal(processedEvent.data.amount, '150.00');
+  assert.equal(processedEvent.data.currency, 'USD');
+});
+
+test('a checkout id mismatch never expires an order', async (t) => {
+  const calls = stubOrders(t, [{ _id: 'o1', bachsCheckoutId: 'chk_1' }]);
+  const originalError = console.error;
+  console.error = () => {};
+  t.after(() => { console.error = originalError; });
+
+  const result = await reconcileOrders(Date.now(), {
+    getCheckout: async () => ({ checkout_id: 'chk_other', status: 'expired', payment_status: 'expired' }),
+  });
+
+  assert.equal(result.expired, 0);
+  assert.equal(calls.updateOne.length, 0);
 });
 
 test('a pending order is left alone when Bachs cannot be reached', async (t) => {

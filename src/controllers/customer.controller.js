@@ -6,6 +6,7 @@ import { toCustomerOrderView } from '../serializers/order.serializer.js';
 import { toPublicCustomer } from '../serializers/customer.serializer.js';
 import { signInCustomer, verifyGoogleSignIn } from '../services/customer-auth.service.js';
 import { createPushId } from '../services/notification.service.js';
+import { refreshOrderPaymentStatuses } from '../services/payment-status.service.js';
 import { generateNonce } from '../utils/nonce.js';
 import { hashSessionToken } from '../utils/tokens.js';
 import { googleSignInSchema } from '../validators/customer.validators.js';
@@ -53,7 +54,10 @@ export async function listCustomerOrders(request, response) {
   if (request.customer.trusted) {
     ownership.push({ customer: null, email: request.customer.email });
   }
-  const orders = await Order.find({ $or: ownership }).sort({ createdAt: -1 }).limit(50).lean();
+  let orders = await Order.find({ $or: ownership }).sort({ createdAt: -1 }).limit(50).lean();
+  if (await refreshOrderPaymentStatuses(orders)) {
+    orders = await Order.find({ $or: ownership }).sort({ createdAt: -1 }).limit(50).lean();
+  }
   return response.json({
     pushId: request.customer.trusted ? createPushId(request.customer.email) : undefined,
     orders: orders.map(toCustomerOrderView),
