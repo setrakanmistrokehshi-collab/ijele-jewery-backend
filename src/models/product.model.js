@@ -16,6 +16,8 @@ const productSchema = new Schema(
     stock: { type: Number, min: 0, default: 0, validate: isWholeNumber },
     images: [{ type: String, maxlength: 500 }],
     prices: amountPerCurrency, // selling price, minor units
+    // Optional alternative prices the shopper chooses between (for example sizes or finishes). Empty = one price.
+    priceOptions: [{ label: { type: String, required: true, trim: true, maxlength: 40 }, prices: amountPerCurrency }],
     costs: amountPerCurrency, // unit cost, minor units (feeds operating expenses)
     seo: {
       metaTitle: { type: String, maxlength: 60 },

@@ -22,33 +22,41 @@ const MAX_ORDER_NUMBER_ATTEMPTS = 5;
 const DUPLICATE_KEY_ERROR_CODE = 11000;
 
 /** The same SKU listed twice becomes one line with the quantities added together. */
-function mergeDuplicateSkus(items) {
-  const quantityBySku = new Map();
-  for (const { sku, qty } of items) quantityBySku.set(sku, (quantityBySku.get(sku) ?? 0) + qty);
-  return [...quantityBySku].map(([sku, qty]) => ({ sku, qty }));
+function mergeDuplicateLines(items) {
+  const merged = new Map();
+  for (const { sku, optionId, qty } of items) {
+    const key = `${sku}|${optionId ?? ''}`;
+    merged.set(key, { sku, optionId, qty: (merged.get(key)?.qty ?? 0) + qty });
+  }
+  return [...merged.values()];
 }
 
 /**
  * Turns the customer's basket into order lines. Prices and costs come ONLY from MongoDB;
  * any price sent by the browser is never read.
  */
-async function buildOrderLines(items, currency) {
-  const requestedItems = mergeDuplicateSkus(items);
+export async function buildOrderLines(items, currency) {
+  const requestedItems = mergeDuplicateLines(items);
   const products = await Product.find({
     sku: trustedQueryOperator({ $in: requestedItems.map((item) => item.sku) }),
     active: true,
   });
 
-  const lines = requestedItems.map(({ sku, qty }) => {
+  const lines = requestedItems.map(({ sku, optionId, qty }) => {
     const product = products.find((candidate) => candidate.sku === sku);
-    const isAvailable = product && product.prices[currency] && qty <= MAX_QUANTITY_PER_ITEM;
-    if (!isAvailable) return null;
+    if (!product || qty > MAX_QUANTITY_PER_ITEM) return null;
+    const options = product.priceOptions ?? [];
+    // A product with price options must be bought with one of them; a product without any must not name one.
+    const option = optionId ? options.find((candidate) => String(candidate._id) === optionId.toLowerCase()) : undefined;
+    if (optionId ? !option : options.length > 0) return null;
+    const prices = option?.prices ?? product.prices;
+    if (!prices[currency]) return null;
     return {
       product: product._id,
       sku,
-      name: product.name,
+      name: option ? `${product.name} (${option.label})` : product.name,
       qty,
-      unitAmount: product.prices[currency],
+      unitAmount: prices[currency],
       unitCost: product.costs[currency],
       gift: product.freeGift?.enabled ? product.freeGift.name : undefined,
     };
@@ -203,14 +211,32 @@ async function startHostedCheckout(order, clientOrigin) {
   }
 }
 
-/** A customer who already holds several unpaid checkouts must finish or wait for them before opening another. */
-async function assertCustomerHasRoomForCheckout(customerId) {
-  const openCheckouts = await Order.countDocuments({
-    customer: customerId,
-    $or: [{ status: 'pending' }, { status: 'review', reviewReason: REVIEW_REASONS.paymentUnconfirmed }],
-  });
-  if (openCheckouts >= MAX_OPEN_CHECKOUTS_PER_CUSTOMER) {
-    throw new HttpError(429, 'You have several unpaid checkouts open. Please complete one, or wait a few minutes for them to expire.');
+/**
+ * One customer may hold stock in only a few unpaid checkouts at a time (inventory-parking guard). A real customer
+ * who changes their address or delivery method creates a NEW checkout each time (the basket key changes), so instead
+ * of refusing them, their OLDEST unpaid checkouts are retired and their stock returned. If one of those was in fact
+ * paid, its webhook lands as a late payment and a person decides. Checkouts whose creation is still unconfirmed cannot
+ * be retired safely, so only those can make us refuse (409, a message the storefront already shows).
+ */
+async function makeRoomForCheckout(customerId) {
+  const [pending, unconfirmedCount] = await Promise.all([
+    Order.find({ customer: customerId, status: 'pending' }).sort({ createdAt: 1 }).select('_id').lean(),
+    Order.countDocuments({ customer: customerId, status: 'review', reviewReason: REVIEW_REASONS.paymentUnconfirmed }),
+  ]);
+  const mustRetire = pending.length + unconfirmedCount - MAX_OPEN_CHECKOUTS_PER_CUSTOMER + 1;
+  if (mustRetire <= 0) return;
+  if (mustRetire > pending.length) {
+    throw new HttpError(409, 'You have unpaid checkouts we are still confirming. Please wait a few minutes before starting another.');
+  }
+  for (const { _id } of pending.slice(0, mustRetire)) {
+    const retired = await Order.updateOne(
+      { _id, status: 'pending' },
+      {
+        $set: { status: 'expired' },
+        $push: { history: { at: new Date(), by: 'system', action: 'superseded', from: 'pending', to: 'expired', note: 'Customer started a newer checkout' } },
+      },
+    );
+    if (retired.modifiedCount) await releaseOrderStock(_id);
   }
 }
 
@@ -235,7 +261,7 @@ export async function createCheckout({ cart, signedInCustomer, idempotencyKey, r
   let order = null;
 
   try {
-    await assertCustomerHasRoomForCheckout(customer);
+    await makeRoomForCheckout(customer);
     const lines = await buildOrderLines(items, currency);
     order = await createOrderWithReservedStock({
       lines, currency, customer, email, phone, address, shipping, checkoutAttemptKey: idempotencyKey, clientOrigin,

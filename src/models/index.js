@@ -5,6 +5,7 @@ export { Customer } from './customer.model.js';
 export { CustomerSession } from './customer-session.model.js';
 export { Order } from './order.model.js';
 export { Product } from './product.model.js';
+export { Setting } from './setting.model.js';
 export { ShippingZone } from './shipping-zone.model.js';
 export { CheckoutAttempt } from './checkout-attempt.model.js';
 export { WebhookEvent } from './webhook-event.model.js';

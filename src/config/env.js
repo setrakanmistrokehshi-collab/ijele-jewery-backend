@@ -8,6 +8,9 @@ const environmentSchema = z
     NODE_ENV: z.enum(['development', 'production', 'test']).default('development'),
     PORT: z.coerce.number().int().default(4000),
     HOST: z.string().default('0.0.0.0'),
+    // Proxies between the browser and this API (Browser -> Vercel -> Render -> API is 2). Wrong values make every
+    // shopper share one rate-limit bucket, or let a client fake its IP.
+    TRUST_PROXY_HOPS: z.coerce.number().int().min(0).max(5).default(2),
     MONGO_URI: z.string().min(1),
     MONGO_MAX_POOL_SIZE: z.coerce.number().int().min(5).max(500).default(50),
 

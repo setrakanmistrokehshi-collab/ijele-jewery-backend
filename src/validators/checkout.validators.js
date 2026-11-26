@@ -1,6 +1,6 @@
 import { z } from 'zod';
 import { CURRENCIES, SKU_PATTERN } from '../config/constants.js';
-import { phoneNumber, singleLineText } from './common.validators.js';
+import { objectId, phoneNumber, singleLineText } from './common.validators.js';
 
 export const MAX_QUANTITY_PER_ITEM = 10;
 
@@ -23,6 +23,7 @@ export const checkoutRequestSchema = z.strictObject({
     .array(
       z.strictObject({
         sku: z.string().toUpperCase().regex(SKU_PATTERN),
+        optionId: objectId.optional(), // which price option of the product, when it has any
         qty: z.number().int().min(1).max(MAX_QUANTITY_PER_ITEM),
       }),
     )

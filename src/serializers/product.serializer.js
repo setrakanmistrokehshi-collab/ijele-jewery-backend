@@ -6,6 +6,7 @@ export const toPublicProduct = (product) => ({
   category: product.category,
   images: product.images,
   prices: product.prices,
+  priceOptions: (product.priceOptions ?? []).map((option) => ({ id: String(option._id), label: option.label, prices: option.prices })),
   freeGift: { enabled: Boolean(product.freeGift?.enabled), name: product.freeGift?.name ?? '' },
   seo: { metaTitle: product.seo?.metaTitle ?? '', metaDescription: product.seo?.metaDescription ?? '' },
   inStock: product.stock > 0,

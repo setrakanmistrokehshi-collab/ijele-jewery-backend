@@ -89,24 +89,53 @@ test('an unconfirmed attempt replays the checkout once the sweeper confirmed it'
   assert.deepEqual(await claimCheckoutAttempt('k', 'f'), { replayUrl: 'https://pay.example/c1' });
 });
 
-test('a customer with too many open checkouts is refused, and the attempt is released', async (t) => {
+const cart = {
+  currency: 'USD', phone: '+2348012345678',
+  address: { name: 'A', line1: 'B', city: 'C', postal: '1' },
+  shipping: { country: 'Nigeria', state: '', city: '', method: 'std' },
+  items: [{ sku: 'WATCH-1', qty: 1 }],
+};
+const checkoutRequest = () => createCheckout({
+  cart, signedInCustomer: { _id: 'c1', email: 'a@gmail.com' }, idempotencyKey: 'key-1', requestOrigin: 'https://shop.example.com',
+});
+
+test('a customer whose open checkouts are all still unconfirmed is refused with a 409, and the attempt is released', async (t) => {
   const attemptCalls = stub(t, CheckoutAttempt, {
     create: () => Promise.resolve({}),
     deleteOne: () => Promise.resolve({ deletedCount: 1 }),
   });
-  stub(t, Order, { countDocuments: () => Promise.resolve(MAX_OPEN_CHECKOUTS_PER_CUSTOMER) });
-  const cart = {
-    currency: 'USD', phone: '+2348012345678',
-    address: { name: 'A', line1: 'B', city: 'C', postal: '1' },
-    shipping: { country: 'Nigeria', state: '', city: '', method: 'std' },
-    items: [{ sku: 'WATCH-1', qty: 1 }],
-  };
+  stub(t, Order, {
+    find: () => query([]),
+    countDocuments: () => Promise.resolve(MAX_OPEN_CHECKOUTS_PER_CUSTOMER),
+  });
 
-  await assert.rejects(
-    createCheckout({
-      cart, signedInCustomer: { _id: 'c1', email: 'a@gmail.com' }, idempotencyKey: 'key-1', requestOrigin: 'https://shop.example.com',
-    }),
-    { status: 429 },
-  );
+  await assert.rejects(checkoutRequest(), { status: 409 });
   assert.equal(attemptCalls.deleteOne.length, 1);
+});
+
+test('at the limit, the oldest unpaid checkouts are retired and their stock returned instead of refusing the customer', async (t) => {
+  stub(t, CheckoutAttempt, {
+    create: () => Promise.resolve({}),
+    deleteOne: () => Promise.resolve({ deletedCount: 1 }),
+  });
+  const orderCalls = stub(t, Order, {
+    find: () => query([{ _id: 'old1' }, { _id: 'old2' }, { _id: 'old3' }]), // oldest first
+    countDocuments: () => Promise.resolve(0),
+    updateOne: () => Promise.resolve({ modifiedCount: 1 }),
+    // releaseOrderStock claims the order inside a transaction
+    findOneAndUpdate: () => query({ items: [{ product: 'p1', sku: 'WATCH-1', qty: 1 }] }),
+  });
+  const productCalls = stub(t, Product, { updateOne: () => Promise.resolve({ matchedCount: 1 }) });
+  const originalDb = Order.db;
+  Order.db = { startSession: async () => ({ withTransaction: (work) => work(), endSession: async () => {} }) };
+  t.after(() => { Order.db = originalDb; });
+
+  // The new checkout itself fails later (no products in this stub), which is fine: we only look at the retiring.
+  stub(t, Product, { find: () => Promise.resolve([]) });
+  await assert.rejects(checkoutRequest());
+
+  assert.equal(orderCalls.updateOne.length, 1); // 3 open + 1 new would be 4: exactly one must go
+  assert.deepEqual(orderCalls.updateOne[0][0], { _id: 'old1', status: 'pending' });
+  assert.equal(orderCalls.updateOne[0][1].$set.status, 'expired');
+  assert.equal(productCalls.updateOne.length, 1);
 });

@@ -1,13 +1,17 @@
 import { z } from 'zod';
 import { env } from '../config/env.js';
 import { PRODUCT_CATEGORIES } from '../config/constants.js';
-import { multiLineText, sku, singleLineText } from './common.validators.js';
+import { multiLineText, objectId, sku, singleLineText } from './common.validators.js';
 
 const MAX_PRICE_IN_MINOR_UNITS = 2_000_000_000;
 const MAX_PHOTOS = 12;
 
 const amount = z.number().int().min(0).max(MAX_PRICE_IN_MINOR_UNITS);
 const amountPerCurrency = z.strictObject({ USD: amount, NGN: amount, EUR: amount, GBP: amount });
+const priceOptions = z
+  .array(z.strictObject({ _id: objectId.optional(), label: singleLineText(1, 40), prices: amountPerCurrency }))
+  .max(6)
+  .refine((options) => new Set(options.map((option) => option.label.toLowerCase())).size === options.length, 'Option names must be different');
 const freeGift = z.strictObject({ enabled: z.boolean(), name: singleLineText(0, 80) });
 
 // Photos must be https Cloudinary delivery URLs from OUR cloud (when configured).
@@ -34,6 +38,7 @@ const productFields = z.strictObject({
     .max(MAX_PHOTOS)
     .refine((urls) => new Set(urls).size === urls.length, 'Duplicate photos'),
   prices: amountPerCurrency,
+  priceOptions,
   costs: amountPerCurrency,
   seo: z.strictObject({ metaTitle: singleLineText(0, 60), metaDescription: singleLineText(0, 160) }),
   active: z.boolean(),
@@ -44,6 +49,7 @@ const productFields = z.strictObject({
 // would silently switch an existing gift off.
 export const createProductSchema = productFields.extend({
   freeGift: freeGift.default({ enabled: false, name: '' }),
+  priceOptions: priceOptions.default([]),
 });
 export const updateProductSchema = productFields.partial();
 
