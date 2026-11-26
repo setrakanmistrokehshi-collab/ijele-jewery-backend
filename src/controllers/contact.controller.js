@@ -16,7 +16,7 @@ export async function listMessages(_request, response) {
 export async function setMessageHandled(request, response) {
   const { id } = idParams.parse(request.params);
   const { handled } = markHandledSchema.parse(request.body);
-  const message = await ContactMessage.findByIdAndUpdate(id, { handled }, { new: true });
+  const message = await ContactMessage.findByIdAndUpdate(id, { handled }, { returnDocument: 'after', runValidators: true }).lean();
   return message ? response.json(message) : response.status(404).json({ error: 'Not found' });
 }
 
