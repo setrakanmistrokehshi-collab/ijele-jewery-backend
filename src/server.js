@@ -24,7 +24,7 @@ const DEFAULT_JSON_LIMIT = '8kb';
 
 const app = express();
 app.disable('x-powered-by');
-app.set('trust proxy', 1);
+app.set('trust proxy', 2); // trust the first proxy (e.g. Cloudflare) to set the real client IP in X-Forwarded-For
 app.use(securityHeaders);
 app.use(cors);
 
