@@ -66,7 +66,14 @@ async function handleCollection(event, eventData, chargeId) {
       ? { $set: { status: 'paid', ...paymentDetails }, $push: { history: confirmedEntry } }
       : { $set: { status: 'review', reviewReason: REVIEW_REASONS.paymentMismatch, ...paymentDetails }, $push: { history: mismatchEntry } },
   );
-  if (fromPending.modifiedCount) return isExactPayment ? 'paid' : 'review';
+  if (fromPending.modifiedCount) {
+    if (isExactPayment) {
+      notifyCustomerOfOrderUpdate({ ...order.toObject?.() ?? order, status: 'paid', ...paymentDetails }, 'paid')
+        .catch((error) => console.error('Payment notification failed:', error));
+      return 'paid';
+    }
+    return 'review';
+  }
 
   // 2. We never learned whether Bachs created the checkout, and the money did arrive: settle it.
   const fromUnconfirmed = await Order.updateOne(
@@ -79,7 +86,14 @@ async function handleCollection(event, eventData, chargeId) {
       ? { $set: { status: 'paid', ...paymentDetails }, $unset: { reviewReason: '' }, $push: { history: confirmedEntry } }
       : { $set: { reviewReason: REVIEW_REASONS.paymentMismatch, ...paymentDetails }, $push: { history: mismatchEntry } },
   );
-  if (fromUnconfirmed.modifiedCount) return isExactPayment ? 'paid-after-review' : 'review';
+  if (fromUnconfirmed.modifiedCount) {
+    if (isExactPayment) {
+      notifyCustomerOfOrderUpdate({ ...order.toObject?.() ?? order, status: 'paid', ...paymentDetails }, 'paid')
+        .catch((error) => console.error('Payment notification failed:', error));
+      return 'paid-after-review';
+    }
+    return 'review';
+  }
 
   // 3. Money that arrives after the order was cancelled, expired or failed needs a person (its stock was released).
   const lateEntry = systemHistoryEntry('late-payment', 'review', `Payment arrived after the order was ${order.status}`);

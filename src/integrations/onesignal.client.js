@@ -14,7 +14,10 @@ export async function sendOneSignalNotification(payload) {
     headers: { 'Content-Type': 'application/json', ...authorizationHeaders },
     body: JSON.stringify({ app_id: env.ONESIGNAL_APP_ID, ...payload }),
   });
-  if (!response.ok) throw new Error(`OneSignal responded with ${response.status}`);
+  if (!response.ok) {
+    const detail = await response.text().catch(() => '');
+    throw new Error(`OneSignal responded with ${response.status}${detail ? `: ${detail.slice(0, 300)}` : ''}`);
+  }
 }
 
 /** Subscriber counts for the admin dashboard, or null when OneSignal is unavailable. */

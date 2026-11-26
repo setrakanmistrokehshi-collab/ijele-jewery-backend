@@ -26,6 +26,10 @@ function buildOrderEmailHtml(order, subject) {
 /** Push plus email. Failures are logged and never block fulfilment. */
 export async function notifyCustomerOfOrderUpdate(order, description = STEP_DESCRIPTIONS[order.step]) {
   if (!isOneSignalConfigured()) return;
+  if (!order?.email) {
+    console.error(`Order ${order?.orderNumber ?? order?._id ?? 'unknown'} has no email address; notification skipped`);
+    return;
+  }
   const subject = `Order ${order.orderNumber} is ${description}`;
   const results = await Promise.allSettled([
     sendOneSignalNotification({
