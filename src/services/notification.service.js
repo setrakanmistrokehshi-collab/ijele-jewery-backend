@@ -14,9 +14,11 @@ export const createPushId = (email) => crypto.createHmac('sha256', env.PUSH_ID_S
 
 function buildOrderEmailHtml(order, subject) {
   const ordersUrl = `${new URL(env.CLIENT_ORIGIN[0]).origin}/orders`;
-  const trackingLine = order.trackingNumber
-    ? `<p>${escapeHtml(order.carrier)} tracking number: <strong>${escapeHtml(order.trackingNumber)}</strong></p>`
-    : '';
+  const trackingDetails = [
+    order.carrier && `Carrier: ${escapeHtml(order.carrier)}`,
+    order.trackingNumber && `Tracking number: <strong>${escapeHtml(order.trackingNumber)}</strong>`,
+  ].filter(Boolean).join(' · ');
+  const trackingLine = trackingDetails ? `<p>${trackingDetails}</p>` : '';
   return (
     `<div style="font-family:Georgia,serif;max-width:520px"><h2>${escapeHtml(subject)}</h2>${trackingLine}` +
     `<p><a href="${ordersUrl}">View your order status</a></p><p>Ijele Smart Jewelry</p></div>`

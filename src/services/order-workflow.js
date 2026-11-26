@@ -43,9 +43,6 @@ export function planOrderAction(order, action, input = {}) {
     const step = SHIPPING_STEP_BY_ACTION[action];
     const carrier = input.carrier?.trim() || order.carrier || '';
     const trackingNumber = input.trackingNumber?.trim() || order.trackingNumber || '';
-    if (action === 'shipped' && (!carrier || !trackingNumber)) {
-      return { ok: false, error: 'Shipped needs a carrier and a tracking number.' };
-    }
     return {
       ok: true,
       changes: { step, carrier, trackingNumber },

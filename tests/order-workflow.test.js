@@ -12,13 +12,19 @@ test('each status only offers the actions that make sense', () => {
   assert.ok(getAllowedActions(paidOrder).includes('refund'));
 });
 
-test('shipping an order needs a carrier and a tracking number', () => {
+test('shipping details are optional when marking an order as shipped', () => {
   const plan = planOrderAction(paidOrder, 'shipped', {});
-  assert.equal(plan.ok, false);
+  assert.equal(plan.ok, true);
+  assert.equal(plan.changes.carrier, '');
+  assert.equal(plan.changes.trackingNumber, '');
+  assert.equal(plan.notifyCustomer, 'step');
   const shipped = planOrderAction(paidOrder, 'shipped', { carrier: 'DHL', trackingNumber: '123' });
   assert.equal(shipped.ok, true);
   assert.equal(shipped.notifyCustomer, 'step');
   assert.equal(shipped.changes.step, 2);
+  const carrierOnly = planOrderAction(paidOrder, 'shipped', { carrier: 'DHL' });
+  assert.equal(carrierOnly.ok, true);
+  assert.equal(carrierOnly.changes.trackingNumber, '');
 });
 
 test('moving an order back a step does not notify the customer', () => {
