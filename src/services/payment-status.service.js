@@ -7,6 +7,10 @@ import { trustedQueryOperator } from '../utils/trusted-query-operator.js';
 
 const PAYMENT_STATUS_CHECK_COOLDOWN_MS = 30_000;
 const CHECKABLE_REVIEW_REASONS = [REVIEW_REASONS.paymentUnconfirmed, REVIEW_REASONS.paymentCheckNeeded];
+const FAILED_PAYMENT_STATUSES = new Set([
+  'failed', 'underpaid', 'overpaid', 'refunded', 'partially_refunded', 'auto_refunded',
+]);
+const IN_PROGRESS_PAYMENT_STATUSES = new Set(['processing', 'accepted']);
 
 function paymentStatusFilter(order) {
   if (order.status === 'pending') return { status: 'pending' };
@@ -29,13 +33,42 @@ export async function applyBachsCheckoutStatus(order, checkout, processEvent = p
     reference: checkout.reference ?? String(order._id),
   };
 
-  if (checkout.payment_status === 'succeeded') {
-    const charge = checkout.charge;
+  const charge = checkout.charge;
+  const paymentSucceeded = checkout.payment_status === 'succeeded' || (
+    charge?.status === 'succeeded' && !FAILED_PAYMENT_STATUSES.has(checkout.payment_status)
+  );
+
+  if (paymentSucceeded) {
     eventData.amount = charge?.amount_paid ?? charge?.amount ?? checkout.amount;
     eventData.currency = charge?.currency ?? checkout.currency;
     if (charge?.payment_id) eventData.charge_id = String(charge.payment_id);
     const result = await processEvent({ type: 'collection.succeeded', data: eventData });
     return result !== 'unmatched';
+  }
+
+  if (
+    order.status === 'review' &&
+    order.reviewReason === REVIEW_REASONS.paymentCheckNeeded &&
+    (IN_PROGRESS_PAYMENT_STATUSES.has(checkout.payment_status) || IN_PROGRESS_PAYMENT_STATUSES.has(charge?.status))
+  ) {
+    const resumed = await Order.updateOne(
+      { _id: order._id, status: 'review', reviewReason: REVIEW_REASONS.paymentCheckNeeded },
+      {
+        $set: { status: 'pending' },
+        $unset: { reviewReason: '' },
+        $push: {
+          history: {
+            at: new Date(),
+            by: 'system',
+            action: 'payment-check-resumed',
+            from: 'review',
+            to: 'pending',
+            note: 'Bachs payment is still processing; the order will continue to be checked automatically.',
+          },
+        },
+      },
+    );
+    return resumed.modifiedCount > 0;
   }
 
   if (

@@ -123,3 +123,50 @@ test('a provider-confirmed payment can recover payment-check-needed review order
   assert.equal(calls.updateOne[0][2].timestamps, false);
   assert.equal(processedEvent.type, 'collection.succeeded');
 });
+
+test('a succeeded charge settles even when the checkout status is accepted', async (t) => {
+  stub(t, Order, { updateOne: async () => ({ modifiedCount: 1 }) });
+  let processedEvent;
+
+  const refreshed = await refreshOrderPaymentStatus(pendingOrder, {
+    now: 1_000_000,
+    getCheckout: async () => ({
+      checkout_id: 'chk_1',
+      payment_status: 'accepted',
+      amount: '150.00',
+      currency: 'USD',
+      charge: { payment_id: 'pay_1', status: 'succeeded', amount: '150.00', currency: 'USD' },
+    }),
+    processEvent: async (event) => {
+      processedEvent = event;
+      return 'paid';
+    },
+  });
+
+  assert.equal(refreshed, true);
+  assert.equal(processedEvent.type, 'collection.succeeded');
+  assert.equal(processedEvent.data.amount, '150.00');
+  assert.equal(processedEvent.data.currency, 'USD');
+});
+
+test('a payment-check-needed order returns to pending while Bachs is still processing it', async (t) => {
+  const calls = stub(t, Order, { updateOne: async () => ({ modifiedCount: 1 }) });
+  const order = {
+    ...pendingOrder,
+    status: 'review',
+    reviewReason: 'payment-check-needed',
+  };
+
+  const refreshed = await refreshOrderPaymentStatus(order, {
+    now: 1_000_000,
+    getCheckout: async () => ({
+      checkout_id: 'chk_1',
+      payment_status: 'processing',
+    }),
+  });
+
+  assert.equal(refreshed, true);
+  assert.equal(calls.updateOne.length, 2);
+  assert.equal(calls.updateOne[1][1].$set.status, 'pending');
+  assert.equal(calls.updateOne[1][1].$unset.reviewReason, '');
+});

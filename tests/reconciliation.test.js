@@ -37,6 +37,29 @@ test('payment activity without confirmed success is sent to review, never expire
   assert.equal(update.$set.reviewReason, 'payment-check-needed');
 });
 
+test('processing and accepted payments remain pending rather than entering manual review', async (t) => {
+  const calls = stubOrders(t, [{ _id: 'o1', bachsCheckoutId: 'chk_1' }]);
+
+  for (const payment_status of ['processing', 'accepted']) {
+    await reconcileOrders(Date.now(), {
+      getCheckout: async () => ({ checkout_id: 'chk_1', payment_status }),
+    });
+  }
+
+  assert.equal(calls.updateOne.length, 0);
+});
+
+test('failed payments are sent to review rather than silently expired', async (t) => {
+  const calls = stubOrders(t, [{ _id: 'o1', bachsCheckoutId: 'chk_1' }]);
+  await reconcileOrders(Date.now(), {
+    getCheckout: async () => ({ checkout_id: 'chk_1', payment_status: 'failed' }),
+  });
+
+  assert.equal(calls.updateOne.length, 1);
+  assert.equal(calls.updateOne[0][1].$set.status, 'review');
+  assert.equal(calls.updateOne[0][1].$set.reviewReason, 'payment-check-needed');
+});
+
 test('a confirmed Bachs payment is passed to the normal settlement path before expiry', async (t) => {
   const calls = stubOrders(t, [{ _id: 'o1', bachsCheckoutId: 'chk_1' }]);
   let processedEvent;

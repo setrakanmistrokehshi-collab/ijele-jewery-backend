@@ -19,17 +19,20 @@ const RESUME_WINDOW_MS = 15 * MINUTE;
 const RESUME_AFTER_MS = 1 * MINUTE; // give the original request's webhook a moment first
 const BATCH_SIZE = 100;
 const RESUME_BATCH_SIZE = 20;
+const IN_PROGRESS_PAYMENT_STATUSES = new Set(['processing', 'accepted']);
 
 const systemEntry = (action, from, to, note) => ({ at: new Date(), by: 'system', action, from, to, note });
 
-/**
- * True when Bachs shows the customer did something payable on this checkout (a charge, a completion time, or any
- * payment status other than "nothing happened"). Such an order must never be expired automatically.
- */
+function isPaymentStillInProgress(checkout) {
+  return IN_PROGRESS_PAYMENT_STATUSES.has(checkout?.payment_status)
+    || IN_PROGRESS_PAYMENT_STATUSES.has(checkout?.charge?.status);
+}
+
+/** True when a non-success payment result needs a person to verify it instead of expiring it. */
 export function showsPaymentActivity(checkout) {
   if (!checkout) return false;
   if (checkout.charge || checkout.completed_at) return true;
-  const idleStatuses = [undefined, null, '', 'created', 'expired', 'cancelled', 'failed'];
+  const idleStatuses = [undefined, null, '', 'created', 'expired', 'cancelled'];
   return !idleStatuses.includes(checkout.payment_status);
 }
 
@@ -57,6 +60,7 @@ async function expireAbandonedPending(cutoff, getCheckout, processEvent) {
       if (await applyBachsCheckoutStatus({ _id, bachsCheckoutId, status: 'pending' }, checkout, processEvent)) {
         continue;
       }
+      if (isPaymentStillInProgress(checkout)) continue;
       if (showsPaymentActivity(checkout)) {
         await Order.updateOne(
           { _id, status: 'pending' },
