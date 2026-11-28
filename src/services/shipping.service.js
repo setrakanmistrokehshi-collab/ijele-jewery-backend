@@ -2,7 +2,8 @@
 // and delete endpoints clear the cache straight after they write.
 import { ShippingZone } from '../models/index.js';
 import {
-  calculateFeeInUsdCents, convertCurrencyToUsdCents, convertUsdCentsToCurrency, findMatchingZone,
+  calculateFeeInUsdCents, convertCurrencyToUsdCents, convertUsdCentsToCurrency,
+  DEFAULT_SHIPPING_FEES_USD, findMatchingZone,
 } from '../utils/shipping-rules.js';
 
 const ZONE_CACHE_LIFETIME_MS = 5 * 60 * 1000;
@@ -26,5 +27,12 @@ export async function resolveShippingFee({ country, state = '', city = '', metho
   const zones = await loadActiveZones();
   const zone = findMatchingZone(zones, { country, state, city });
   const feeInUsdCents = calculateFeeInUsdCents(zone, method, convertCurrencyToUsdCents(goodsTotal, currency));
-  return { fee: convertUsdCentsToCurrency(feeInUsdCents, currency), zoneName: zone?.name ?? null };
+  const freeAboveUsdCents = zone ? zone.freeStdThresholdUsd : DEFAULT_SHIPPING_FEES_USD.freeStandardThreshold;
+  return {
+    fee: convertUsdCentsToCurrency(feeInUsdCents, currency),
+    zoneName: zone?.name ?? null,
+    // 0 means standard delivery is never free for this zone; the checkout page uses this to show
+    // "add X more for free shipping" instead of inventing its own copy of the threshold.
+    freeStandardThreshold: freeAboveUsdCents > 0 ? convertUsdCentsToCurrency(freeAboveUsdCents, currency) : null,
+  };
 }
