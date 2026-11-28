@@ -2,6 +2,8 @@
 import { z } from 'zod';
 
 const optionalUrl = z.preprocess((value) => (value === '' ? undefined : value), z.url().optional());
+const optionalEmail = z.preprocess((value) => (value === '' ? undefined : value), z.email().optional());
+const optionalString = z.preprocess((value) => (value === '' ? undefined : value), z.string().trim().min(1).optional());
 
 const environmentSchema = z
   .object({
@@ -37,7 +39,17 @@ const environmentSchema = z
     GOOGLE_CLIENT_ID: z.string().optional(),
     ONESIGNAL_APP_ID: z.string().optional(),
     ONESIGNAL_API_KEY: z.string().optional(),
+    BREVO_API_KEY: optionalString,
+    BREVO_SENDER_EMAIL: optionalEmail,
+    BREVO_SENDER_NAME: optionalString,
   })
+  .refine(
+    (config) => Boolean(config.BREVO_API_KEY) === Boolean(config.BREVO_SENDER_EMAIL),
+    {
+      message: 'BREVO_API_KEY and BREVO_SENDER_EMAIL must both be configured',
+      path: ['BREVO_API_KEY'],
+    },
+  )
   .refine(
     (config) =>
       config.BACHS_API_KEY.startsWith(

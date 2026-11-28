@@ -1,9 +1,10 @@
-// Order notifications through OneSignal: web push (by external_id) and a tracking email.
+// Order updates use OneSignal for push and Brevo for transactional email.
 import crypto from 'node:crypto';
 import { env } from '../config/env.js';
 import {
   fetchOneSignalSubscriberStats, isOneSignalConfigured, sendOneSignalNotification,
 } from '../integrations/onesignal.client.js';
+import { isBrevoConfigured, sendBrevoEmail } from '../integrations/brevo.client.js';
 import { escapeHtml } from '../utils/escape-html.js';
 import { HttpError } from '../utils/http-error.js';
 
@@ -27,29 +28,43 @@ function buildOrderEmailHtml(order, subject) {
 
 /** Push plus email. Failures are logged and never block fulfilment. */
 export async function notifyCustomerOfOrderUpdate(order, description = STEP_DESCRIPTIONS[order.step]) {
-  if (!isOneSignalConfigured()) return;
   if (!order?.email) {
     console.error(`Order ${order?.orderNumber ?? order?._id ?? 'unknown'} has no email address; notification skipped`);
     return;
   }
+  const oneSignalConfigured = isOneSignalConfigured();
+  const brevoConfigured = isBrevoConfigured();
+  if (!oneSignalConfigured && !brevoConfigured) return;
+
   const subject = `Order ${order.orderNumber} is ${description}`;
-  const results = await Promise.allSettled([
-    sendOneSignalNotification({
+  const sends = [];
+  if (oneSignalConfigured) {
+    sends.push(sendOneSignalNotification({
       target_channel: 'push',
       include_aliases: { external_id: [createPushId(order.email)] },
       headings: { en: 'Ijele' },
       contents: { en: subject },
       url: `${new URL(env.CLIENT_ORIGIN[0]).origin}/orders`,
-    }),
-    sendOneSignalNotification({
+    }));
+  }
+  if (brevoConfigured) {
+    sends.push(sendBrevoEmail({
+      to: order.email,
+      subject,
+      htmlContent: buildOrderEmailHtml(order, subject),
+    }));
+  } else if (oneSignalConfigured) {
+    sends.push(sendOneSignalNotification({
       email_to: [order.email],
       email_subject: subject,
       email_body: buildOrderEmailHtml(order, subject),
-    }),
-  ]);
+    }));
+  }
+
+  const results = await Promise.allSettled(sends);
   results
     .filter((result) => result.status === 'rejected')
-    .forEach((result) => console.error('Order notification failed:', result.reason.message));
+    .forEach((result) => console.error('Order notification failed:', result.reason?.message ?? result.reason));
 }
 
 /** Manual push to every subscriber (flash sales, restock alerts). */
