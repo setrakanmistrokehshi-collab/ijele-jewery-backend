@@ -15,6 +15,9 @@ export function stub(t, target, replacements) {
 
 /** A query-like object: supports .select/.limit/.lean chaining and can be awaited. */
 export const query = (result) => {
-  const chain = { select: () => chain, limit: () => chain, sort: () => chain, lean: () => chain, then: (resolve, reject) => Promise.resolve(result).then(resolve, reject) };
+  const chain = {
+    select: () => chain, limit: () => chain, sort: () => chain, session: () => chain, lean: () => chain,
+    then: (resolve, reject) => Promise.resolve(result).then(resolve, reject),
+  };
   return chain;
 };

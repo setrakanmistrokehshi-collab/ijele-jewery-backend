@@ -1,6 +1,7 @@
 import { Router } from 'express';
 import {
-  getCurrentCustomer, issueGoogleNonce, listCustomerOrders, signInWithGoogle, signOutCustomer,
+  deleteCurrentCustomer, getCurrentCustomer, issueGoogleNonce, listCustomerOrders,
+  requestOrderCancellation, signInWithGoogle, signOutCustomer,
 } from '../controllers/customer.controller.js';
 import { requireCustomer } from '../middleware/attach-customer.js';
 import { customerSignInLimiter } from '../middleware/rate-limiters.js';
@@ -12,5 +13,7 @@ customerRouter.use(requireSameOrigin);
 customerRouter.post('/google-nonce', customerSignInLimiter, issueGoogleNonce);
 customerRouter.post('/google', customerSignInLimiter, signInWithGoogle);
 customerRouter.get('/me', requireCustomer, getCurrentCustomer);
+customerRouter.delete('/me', requireCustomer, deleteCurrentCustomer);
 customerRouter.post('/logout', signOutCustomer);
 customerRouter.get('/orders', requireCustomer, listCustomerOrders);
+customerRouter.post('/orders/:orderNumber/cancel-request', requireCustomer, requestOrderCancellation);

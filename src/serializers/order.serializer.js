@@ -3,6 +3,7 @@ export const toCustomerOrderView = (order) => ({
   orderNumber: order.orderNumber,
   placedAt: order.createdAt,
   status: order.status,
+  cancelRequestPending: Boolean(order.cancelRequestedAt),
   paymentPending: order.status === 'pending' || (order.status === 'review' && order.reviewReason === 'payment-unconfirmed'),
   step: order.step,
   carrier: order.carrier,

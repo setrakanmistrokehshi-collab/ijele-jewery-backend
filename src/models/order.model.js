@@ -53,6 +53,7 @@ const orderSchema = new Schema(
     operatingExpenses: minorUnitAmount, // sum of unitCost * qty
     netProfit: { type: Number, required: true, validate: isWholeNumber }, // revenue - operatingExpenses
     status: { type: String, enum: ORDER_STATUSES, default: 'pending', index: true },
+    cancelRequestedAt: Date,
     // Why a person has to look at this order (set while status is 'review'): see REVIEW_REASONS.
     reviewReason: String,
     // True once the reserved units went back on the shelf. It makes releasing stock happen at most once,
