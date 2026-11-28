@@ -25,6 +25,7 @@ test('order updates send email through Brevo and push through OneSignal', async 
     orderNumber: 'IJL-123456',
     email: 'customer@example.com',
     step: 0,
+    address: { name: '<Ada Obi>' },
     carrier: '<Carrier>',
     trackingNumber: '<track&123>',
   }, 'paid');
@@ -35,8 +36,13 @@ test('order updates send email through Brevo and push through OneSignal', async 
   assert.deepEqual(emailRequest.payload.sender, { email: 'orders@example.com', name: 'Ijele Test' });
   assert.deepEqual(emailRequest.payload.to, [{ email: 'customer@example.com' }]);
   assert.equal(emailRequest.payload.subject, 'Order IJL-123456 is paid');
+  assert.match(emailRequest.payload.htmlContent, /Hello &lt;Ada/);
+  assert.match(emailRequest.payload.htmlContent, /Payment confirmed/);
+  assert.match(emailRequest.payload.htmlContent, /We’ve received your payment and are preparing your order/);
+  assert.match(emailRequest.payload.htmlContent, /Order number:<\/strong> IJL-123456/);
   assert.match(emailRequest.payload.htmlContent, /&lt;Carrier&gt;/);
   assert.match(emailRequest.payload.htmlContent, /&lt;track&amp;123&gt;/);
+  assert.match(emailRequest.payload.htmlContent, /Thank you for choosing Ijele/);
   assert.match(emailRequest.payload.htmlContent, /https:\/\/shop\.example\.com\/orders/);
   assert.equal(requests.filter(({ url }) => url === 'https://api.onesignal.com/notifications').length, 1);
   const pushRequest = requests.find(({ url }) => url === 'https://api.onesignal.com/notifications');
@@ -53,6 +59,15 @@ test('order updates send email through Brevo and push through OneSignal', async 
   const trackingOnlyEmail = requests.filter(({ url }) => url === 'https://api.brevo.com/v3/smtp/email')[1];
   assert.match(trackingOnlyEmail.payload.htmlContent, /Tracking number: <strong>TRACK-123<\/strong>/);
   assert.doesNotMatch(trackingOnlyEmail.payload.htmlContent, /undefined/);
+
+  await notifyCustomerOfOrderUpdate({
+    orderNumber: 'IJL-123460',
+    email: 'customer@example.com',
+    step: 1,
+  }, 'packed');
+  assert.equal(requests.filter(({ url }) => url === 'https://api.brevo.com/v3/smtp/email').length, 2);
+  const packedPush = requests.filter(({ url }) => url === 'https://api.onesignal.com/notifications')[2];
+  assert.equal(packedPush.payload.contents.en, 'Order IJL-123460 is packed');
 });
 
 test('falls back to OneSignal email when Brevo is not configured', async (t) => {
@@ -72,8 +87,8 @@ test('falls back to OneSignal email when Brevo is not configured', async (t) => 
   await notifyCustomerOfOrderUpdate({
     orderNumber: 'IJL-123458',
     email: 'customer@example.com',
-    step: 1,
-  }, 'packed');
+    step: 2,
+  }, 'on its way');
 
   assert.equal(requests.length, 2);
   assert.ok(requests.some(({ payload }) => payload.email_to?.[0] === 'customer@example.com'));
