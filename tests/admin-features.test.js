@@ -136,4 +136,15 @@ test('product and checkout validators accept optional price options only in the 
   const cart = { sku: 'w-1', qty: 1, optionId: OPTION_ID };
   assert.ok(checkoutRequestSchema.shape.items.safeParse([cart]).success);
   assert.ok(!checkoutRequestSchema.shape.items.safeParse([{ ...cart, optionId: 'nope' }]).success);
+
+  const checkout = {
+    currency: 'USD',
+    phone: '+2348012345678',
+    address: { name: 'Ada Obi', line1: '12 Allen Avenue', city: 'Ikeja' },
+    shipping: { country: 'Nigeria', state: 'Lagos', city: 'Ikeja', method: 'std' },
+    items: [cart],
+  };
+  assert.equal(checkoutRequestSchema.parse(checkout).address.postal, '');
+  assert.ok(checkoutRequestSchema.safeParse({ ...checkout, address: { ...checkout.address, postal: '100271' } }).success);
+  assert.ok(!checkoutRequestSchema.safeParse({ ...checkout, shipping: { ...checkout.shipping, state: '' } }).success);
 });

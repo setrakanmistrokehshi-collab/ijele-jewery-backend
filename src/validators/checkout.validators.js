@@ -11,11 +11,11 @@ export const checkoutRequestSchema = z.strictObject({
     name: singleLineText(1, 120),
     line1: singleLineText(1, 200),
     city: singleLineText(1, 100),
-    postal: singleLineText(1, 20),
+    postal: singleLineText(0, 20).optional().default(''),
   }),
   shipping: z.strictObject({
     country: z.string().trim().min(1).max(100),
-    state: z.string().trim().max(100).default(''),
+    state: z.string().trim().min(1).max(100),
     city: z.string().trim().max(100).default(''),
     method: z.enum(['std', 'exp']),
   }),
